@@ -1,17 +1,16 @@
-OUTPUT_TYPE=SHA # OBJ, LIB, BIN or SHA
+OUTPUT_TYPE=BIN # OBJ, LIB, BIN or SHA
 # modify name here for binary excutable file name, if output type is OBJ, 
 # no need to specify the output name
-OUTPUT_NAME=attach_filter.pas
+OUTPUT_NAME=enpasswd
 C_SOURCE_FILES=$(wildcard *.c)
 CPP_SOURCE_FILES=$(wildcard *.cxx *.cpp *.C)
-INCLUDE_PATHS=../include\
-			  ../../common/include# add include paths here
-LIBRARY_PATHS=# add library paths here
-LIBRARY_FILES=archive# add library files here
+INCLUDE_PATHS=../common/include# add include paths here
+LIBRARY_PATHS=/usr/lib64/mysql /usr/lib/mysql# add library paths here
+LIBRARY_FILES=mysqlclient# add library files here
 COMPILING_FLAGS=#add here c or c++ flags for compiling
-LINK_FLAGS=$(patsubst %,-L%,$(LIBRARY_PATHS)) $(patsubst %,-l%,$(LIBRARY_FILES)) 
+LINK_FLAGS=$(patsubst %,-L%,$(LIBRARY_PATHS)) $(patsubst %,-l%,$(LIBRARY_FILES)) ../lib/common.so
 INCLUDE_PATHS:=$(patsubst %,-I%,$(INCLUDE_PATHS))
-MAKE_PATH = ../../make_include#indicate location of the make_common.mk
+MAKE_PATH = ../make_include#indicate location of the make_common.mk
 
 ###############################################################################
 #                          do not modify below!!!                             #

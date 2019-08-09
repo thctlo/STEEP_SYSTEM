@@ -4,6 +4,8 @@
 #include "store_object.h"
 #include "message_object.h"
 
+#define ZCORE_VERSION								"steep zcore 1.0"
+
 #define SOCKET_TIMEOUT								60
 
 #define CALL_ID_LOGON								0x00
@@ -95,6 +97,7 @@
 #define CALL_ID_MESSAGETOVCF						0x57
 #define CALL_ID_VCFTOMESSAGE						0x58
 #define CALL_ID_UINFO								0x59
+#define CALL_ID_CHECKSESSION						0x60
 
 /* ---------------------- defined by zarafa ---------------------- */
 

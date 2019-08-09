@@ -44,6 +44,8 @@ USER_INFO* zarafa_server_get_info();
 
 uint32_t zarafa_server_logon(const char *username,
 	const char *password, uint32_t flags, GUID *phsession);
+
+uint32_t zarafa_server_checksession(GUID hsession);
 	
 uint32_t zarafa_server_uinfo(const char *username,
 	BINARY *pentryid, char **ppdisplay_name, char **ppx500dn);
@@ -67,7 +69,7 @@ uint32_t zarafa_server_openrules(GUID hsession,
 	uint32_t hfolder, uint32_t *phobject);
 
 uint32_t zarafa_server_getpermissions(GUID hsession,
-	uint32_t hfolder, PERMISSION_SET *pperm_set);
+	uint32_t hobject, PERMISSION_SET *pperm_set);
 
 uint32_t zarafa_server_modifypermissions(GUID hsession,
 	uint32_t hfolder, const PERMISSION_SET *pset);

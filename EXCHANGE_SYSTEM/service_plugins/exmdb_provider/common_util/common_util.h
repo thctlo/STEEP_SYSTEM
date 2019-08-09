@@ -54,6 +54,7 @@ typedef struct _LOCAL_SVR {
 #define CALL_ID_SET_FOLDER_BY_CLASS										0x0e
 #define CALL_ID_GET_FOLDER_CLASS_TABLE									0x0f
 #define CALL_ID_CHECK_FOLDER_ID											0x10
+#define CALL_ID_QUERY_FOLDER_MESSAGES									0x11
 #define CALL_ID_CHECK_FOLDER_DELETED									0x12
 #define CALL_ID_GET_FOLDER_BY_NAME										0x13
 #define CALL_ID_CHECK_FOLDER_PERMISSION									0x14
@@ -235,6 +236,10 @@ typedef struct _REQ_SET_FOLDER_BY_CLASS {
 typedef struct _REQ_CHECK_FOLDER_ID {
 	uint64_t folder_id;
 } REQ_CHECK_FOLDER_ID;
+
+typedef struct _REQ_QUERY_FOLDER_MESSAGES {
+	uint64_t folder_id;
+} REQ_QUERY_FOLDER_MESSAGES;
 
 typedef struct _REQ_CHECK_FOLDER_DELETED {
 	uint64_t folder_id;
@@ -841,6 +846,7 @@ typedef union _REQUEST_PAYLOAD {
 	REQ_GET_FOLDER_BY_CLASS get_folder_by_class;
 	REQ_SET_FOLDER_BY_CLASS set_folder_by_class;
 	REQ_CHECK_FOLDER_ID check_folder_id;
+	REQ_QUERY_FOLDER_MESSAGES query_folder_messages;
 	REQ_CHECK_FOLDER_DELETED check_folder_deleted;
 	REQ_GET_FOLDER_BY_NAME get_folder_by_name;
 	REQ_CHECK_FOLDER_PERMISSION check_folder_permission;
@@ -1006,6 +1012,10 @@ typedef struct _RESP_GET_FOLDER_CLASS_TABLE {
 typedef struct _RESP_CHECK_FOLDER_ID {
 	BOOL b_exist;
 } RESP_CHECK_FOLDER_ID;
+
+typedef struct _RESP_QUERY_FOLDER_MESSAGES {
+	TARRAY_SET set;
+} RESP_QUERY_FOLDER_MESSAGES;
 
 typedef struct _RESP_CHECK_FOLDER_DELETED {
 	BOOL b_del;
@@ -1379,6 +1389,7 @@ typedef union _RESPONSE_PAYLOAD {
 	RESP_SET_FOLDER_BY_CLASS set_folder_by_class;
 	RESP_GET_FOLDER_CLASS_TABLE get_folder_class_table;
 	RESP_CHECK_FOLDER_ID check_folder_id;
+	RESP_QUERY_FOLDER_MESSAGES query_folder_messages;
 	RESP_CHECK_FOLDER_DELETED check_folder_deleted;
 	RESP_GET_FOLDER_BY_NAME get_folder_by_name;
 	RESP_CHECK_FOLDER_PERMISSION check_folder_permission;
@@ -1537,7 +1548,7 @@ BOOL common_util_username_to_essdn(
 
 void common_util_pass_service(int service_id, void *func);
 
-void common_util_init(const char *org_name,
+void common_util_init(const char *org_name, unsigned int max_msg,
 	unsigned int max_rule_num, unsigned int max_ext_rule_num);
 
 int common_util_run();
@@ -1617,6 +1628,10 @@ BOOL common_util_get_rule_property(uint64_t rule_id,
 	
 BOOL common_util_get_permission_property(uint64_t member_id,
 	sqlite3 *psqlite, uint32_t proptag, void **ppvalue);
+
+BOOL common_util_check_msgcnt_overflow(sqlite3 *psqlite);
+
+BOOL common_util_check_msgsize_overflow(sqlite3 *psqlite);
 
 BOOL common_util_get_folder_type(sqlite3 *psqlite,
 	uint64_t folder_id, uint32_t *pfolder_type);

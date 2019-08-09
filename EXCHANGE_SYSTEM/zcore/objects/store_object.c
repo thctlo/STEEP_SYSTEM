@@ -21,6 +21,10 @@
 
 #define HGROWING_SIZE									0x500
 
+#define PROP_TAG_USERNAME								0x661A001F
+
+#define PROP_TAG_ECSERVERVERSION						0x6716001F
+
 #define PROP_TAG_OOFSTATE								0x67600003
 #define PROP_TAG_OOFINTERNALREPLY						0x6761001F
 #define PROP_TAG_OOFINTERNALSUBJECT						0x6762001F
@@ -579,6 +583,7 @@ static BOOL store_object_check_readonly_property(
 		return TRUE;
 	}
 	switch (proptag) {
+	case PROP_TAG_ACCESS:
 	case PROP_TAG_ACCESSLEVEL:
 	case PROP_TAG_ADDRESSBOOKDISPLAYNAMEPRINTABLE:
 	case PROP_TAG_CODEPAGEID:
@@ -613,6 +618,7 @@ static BOOL store_object_check_readonly_property(
 	case PROP_TAG_PROHIBITSENDQUOTA:
 	case PROP_TAG_INSTANCEKEY:
 	case PROP_TAG_RECORDKEY:
+	case PROP_TAG_RIGHTS:
 	case PROP_TAG_SEARCHKEY:
 	case PROP_TAG_SORTLOCALEID:
 	case PROP_TAG_STORAGEQUOTALIMIT:
@@ -786,6 +792,9 @@ BOOL store_object_get_all_proptags(STORE_OBJECT *pstore,
 	pproptags->count ++;
 	pproptags->pproptag[pproptags->count] =
 				PROP_TAG_STORESUPPORTMASK;
+	pproptags->count ++;
+	pproptags->pproptag[pproptags->count] =
+					PROP_TAG_ECSERVERVERSION;
 	pproptags->count ++;
 	return TRUE;
 }
@@ -1051,6 +1060,7 @@ static BOOL store_object_get_calculated_property(
 	int temp_len;
 	void *pvalue;
 	USER_INFO *pinfo;
+	uint32_t permission;
 	char temp_buff[1024];
 	static uint64_t tmp_ll = 0;
 	static uint8_t private_uid[] = {
@@ -1128,6 +1138,76 @@ static BOOL store_object_get_calculated_property(
 			*(uint8_t*)(*ppvalue) = 1;
 		} else {
 			*(uint8_t*)(*ppvalue) = 0;
+		}
+		return TRUE;
+	case PROP_TAG_ACCESS:
+		*ppvalue = common_util_alloc(sizeof(uint8_t));
+		if (NULL == *ppvalue) {
+			return FALSE;
+		}
+		if (TRUE == store_object_check_owner_mode(pstore)) {
+			*(uint32_t*)*ppvalue =
+				TAG_ACCESS_MODIFY | TAG_ACCESS_READ |
+				TAG_ACCESS_DELETE | TAG_ACCESS_HIERARCHY |
+				TAG_ACCESS_CONTENTS | TAG_ACCESS_FAI_CONTENTS;
+		} else {
+			pinfo = zarafa_server_get_info();
+			if (TRUE == pstore->b_private) {
+				if (FALSE == exmdb_client_check_mailbox_permission(
+					pstore->dir, pinfo->username, &permission)) {
+					return FALSE;
+				}
+				*(uint32_t*)*ppvalue = TAG_ACCESS_READ;
+				if (permission & PERMISSION_FOLDEROWNER) {
+					*(uint32_t*)*ppvalue =
+						TAG_ACCESS_MODIFY | TAG_ACCESS_DELETE |
+						TAG_ACCESS_HIERARCHY | TAG_ACCESS_CONTENTS |
+						TAG_ACCESS_FAI_CONTENTS;
+				} else {
+					if (permission & PERMISSION_CREATE) {
+						*(uint32_t*)*ppvalue |= TAG_ACCESS_CONTENTS |
+											TAG_ACCESS_FAI_CONTENTS;
+					}
+					if (permission & PERMISSION_CREATESUBFOLDER) {
+						*(uint32_t*)*ppvalue |= TAG_ACCESS_HIERARCHY;
+					}
+				}
+			} else {
+				*(uint32_t*)*ppvalue =
+					TAG_ACCESS_MODIFY | TAG_ACCESS_READ |
+					TAG_ACCESS_DELETE | TAG_ACCESS_HIERARCHY |
+					TAG_ACCESS_CONTENTS | TAG_ACCESS_FAI_CONTENTS;
+			}
+		}
+		return TRUE;
+	case PROP_TAG_RIGHTS:
+		*ppvalue = common_util_alloc(sizeof(uint8_t));
+		if (NULL == *ppvalue) {
+			return FALSE;
+		}
+		if (TRUE == store_object_check_owner_mode(pstore)) {
+			*(uint32_t*)(*ppvalue) =
+					PERMISSION_READANY|PERMISSION_CREATE|
+					PERMISSION_EDITOWNED|PERMISSION_DELETEOWNED|
+					PERMISSION_EDITANY|PERMISSION_DELETEANY|
+					PERMISSION_CREATESUBFOLDER|PERMISSION_FOLDEROWNER|
+					PERMISSION_FOLDERCONTACT|PERMISSION_FOLDERVISIBLE;
+		} else {
+			pinfo = zarafa_server_get_info();
+			if (TRUE == pstore->b_private) {
+				if (FALSE == exmdb_client_check_mailbox_permission(
+					pstore->dir, pinfo->username, &permission)) {
+					return FALSE;
+				}
+				*(uint32_t*)(*ppvalue) &= ~PERMISSION_SENDAS;
+			} else {
+				*(uint32_t*)(*ppvalue) =
+					PERMISSION_READANY|PERMISSION_CREATE|
+					PERMISSION_EDITOWNED|PERMISSION_DELETEOWNED|
+					PERMISSION_EDITANY|PERMISSION_DELETEANY|
+					PERMISSION_CREATESUBFOLDER|PERMISSION_FOLDEROWNER|
+					PERMISSION_FOLDERCONTACT|PERMISSION_FOLDERVISIBLE;
+			}
 		}
 		return TRUE;
 	case PROP_TAG_EMAILADDRESS:
@@ -1257,6 +1337,9 @@ static BOOL store_object_get_calculated_property(
 			return FALSE;
 		}
 		return TRUE;
+	case PROP_TAG_USERNAME:
+		*ppvalue = pinfo->username;
+		return TRUE;
 	case PROP_TAG_USERENTRYID:
 		pinfo = zarafa_server_get_info();
 		*ppvalue = common_util_username_to_addressbook_entryid(
@@ -1292,8 +1375,9 @@ static BOOL store_object_get_calculated_property(
 			*ppvalue = common_util_to_folder_entryid(pstore,
 				rop_util_make_eid_ex(1, PRIVATE_FID_IPMSUBTREE));
 		} else {
+			/* different from native MAPI */
 			*ppvalue = common_util_to_folder_entryid(pstore,
-				rop_util_make_eid_ex(1, PUBLIC_FID_ROOT));
+				rop_util_make_eid_ex(1, PUBLIC_FID_IPMSUBTREE));
 		}
 		if (NULL == *ppvalue) {
 			return FALSE;
@@ -1339,6 +1423,16 @@ static BOOL store_object_get_calculated_property(
 			return FALSE;
 		}
 		return TRUE;
+	case PROP_TAG_COMMONVIEWSENTRYID:
+		if (FALSE == store_object_check_private(pstore)) {
+			return FALSE;
+		}
+		*ppvalue = common_util_to_folder_entryid(pstore,
+			rop_util_make_eid_ex(1, PRIVATE_FID_COMMON_VIEWS));
+		if (NULL == *ppvalue) {
+			return FALSE;
+		}
+		return TRUE;
 	case PROP_TAG_IPMPUBLICFOLDERSENTRYID:
 	case PROP_TAG_NONIPMSUBTREEENTRYID:
 		if (TRUE == store_object_check_private(pstore)) {
@@ -1359,6 +1453,9 @@ static BOOL store_object_get_calculated_property(
 		if (NULL == *ppvalue) {
 			return FALSE;
 		}
+		return TRUE;
+	case PROP_TAG_ECSERVERVERSION:
+		*ppvalue = ZCORE_VERSION;
 		return TRUE;
 	case PROP_TAG_OOFSTATE:
 	case PROP_TAG_OOFINTERNALREPLY:
@@ -1750,8 +1847,8 @@ BOOL store_object_remove_properties(STORE_OBJECT *pstore,
 	USER_INFO *pinfo;
 	
 	pinfo = zarafa_server_get_info();
-	if (TRUE == pstore->b_private &&
-		pinfo->user_id == pstore->account_id) {
+	if (FALSE == pstore->b_private ||
+		pinfo->user_id != pstore->account_id) {
 		return TRUE;
 	}
 	for (i=0; i<pproptags->count; i++) {
@@ -1762,4 +1859,127 @@ BOOL store_object_remove_properties(STORE_OBJECT *pstore,
 		object_tree_remove_zarafa_store_propval(
 			pinfo->ptree, pproptags->pproptag[i]);
 	}
+	return TRUE;
+}
+
+static BOOL store_object_get_folder_permissions(
+	STORE_OBJECT *pstore, uint64_t folder_id,
+	PERMISSION_SET *pperm_set)
+{
+	int i, j;
+	const char *dir;
+	BINARY *pentryid;
+	uint32_t row_num;
+	uint32_t table_id;
+	uint32_t *prights;
+	uint32_t max_count;
+	PROPTAG_ARRAY proptags;
+	TARRAY_SET permission_set;
+	PERMISSION_ROW *pperm_row;
+	static uint32_t proptag_buff[] = {
+		PROP_TAG_ENTRYID,
+		PROP_TAG_MEMBERRIGHTS
+	};
+	
+	if (FALSE == exmdb_client_load_permission_table(
+		pstore->dir, folder_id, 0, &table_id, &row_num)) {
+		return FALSE;
+	}
+	proptags.count = 2;
+	proptags.pproptag = proptag_buff;
+	if (FALSE == exmdb_client_query_table(dir, NULL, 0,
+		table_id, &proptags, 0, row_num, &permission_set)) {
+		exmdb_client_unload_table(dir, table_id);
+		return FALSE;
+	}
+	exmdb_client_unload_table(pstore->dir, table_id);
+	max_count = (pperm_set->count/100)*100;
+	for (i=0; i<permission_set.count; i++) {
+		if (max_count == pperm_set->count) {
+			max_count += 100;
+			pperm_row = common_util_alloc(
+				sizeof(PERMISSION_ROW)*max_count);
+			if (NULL == pperm_row) {
+				return FALSE;
+			}
+			if (0 != pperm_set->count) {
+				memcpy(pperm_row, pperm_set->prows,
+					sizeof(PERMISSION_ROW)*pperm_set->count);
+			}
+			pperm_set->prows = pperm_row;
+		}
+		pentryid = common_util_get_propvals(
+				permission_set.pparray[i],
+				PROP_TAG_ENTRYID);
+		/* ignore the default and anonymous user */
+		if (NULL == pentryid || 0 == pentryid->cb) {
+			continue;
+		}
+		for (j=0; j<pperm_set->count; j++) {
+			if (pperm_set->prows[j].entryid.cb ==
+				pentryid->cb && 0 == memcmp(
+				pperm_set->prows[j].entryid.pb,
+				pentryid->pb, pentryid->cb)) {
+				break;	
+			}
+		}
+		prights = common_util_get_propvals(
+				permission_set.pparray[i],
+				PROP_TAG_MEMBERRIGHTS);
+		if (NULL == prights) {
+			continue;
+		}
+		if (j < pperm_set->count) {
+			pperm_set->prows[j].member_rights |= *prights;
+			continue;
+		}
+		pperm_set->prows[pperm_set->count].flags = RIGHT_NORMAL;
+		pperm_set->prows[pperm_set->count].entryid = *pentryid;
+		pperm_set->prows[pperm_set->count].member_rights = *prights;
+		pperm_set->count ++;
+	}
+	return TRUE;
+}
+
+BOOL store_object_get_permissions(STORE_OBJECT *pstore,
+	PERMISSION_SET *pperm_set)
+{
+	int i;
+	uint32_t row_num;
+	uint32_t table_id;
+	TARRAY_SET tmp_set;
+	uint64_t folder_id;
+	uint32_t tmp_proptag;
+	PROPTAG_ARRAY proptags;
+	
+	if (TRUE == pstore->b_private) {
+		folder_id = rop_util_make_eid_ex(1, PRIVATE_FID_IPMSUBTREE);
+	} else {
+		folder_id = rop_util_make_eid_ex(1, PUBLIC_FID_IPMSUBTREE);
+	}
+	if (FALSE == exmdb_client_load_hierarchy_table(
+		pstore->dir, folder_id, NULL, TABLE_FLAG_DEPTH,
+		NULL, &table_id, &row_num)) {
+		return FALSE;
+	}
+	proptags.count = 1;
+	proptags.pproptag = &tmp_proptag;
+	tmp_proptag = PROP_TAG_FOLDERID;
+	if (FALSE == exmdb_client_query_table(pstore->dir, NULL,
+		0, table_id, &proptags, 0, row_num, &tmp_set)) {
+		return FALSE;
+	}
+	pperm_set->count = 0;
+	pperm_set->prows = NULL;
+	for (i=0; i<tmp_set.count; i++) {
+		if (0 == tmp_set.pparray[i]->count) {
+			continue;
+		}
+		if (FALSE == store_object_get_folder_permissions(pstore,
+			*(uint64_t*)tmp_set.pparray[i]->ppropval[0].pvalue,
+			pperm_set)) {
+			return FALSE;	
+		}
+	}
+	return TRUE;
 }

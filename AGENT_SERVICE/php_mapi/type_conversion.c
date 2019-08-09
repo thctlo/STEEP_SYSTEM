@@ -22,29 +22,10 @@ time_t nttime_to_unix(uint64_t nt_time)
 	return (time_t)unix_time;
 }
 
-zend_bool utf16_to_utf8(const char *src,
-	size_t src_len, char *dst, size_t len)
-{
-	char *pin, *pout;
-	iconv_t conv_id;
-
-	conv_id = iconv_open("UTF-8", "UTF-16");
-	pin = (char*)src;
-	pout = dst;
-	memset(dst, 0, len);
-	if (-1 == iconv(conv_id, &pin, &src_len, &pout, &len)) {
-		iconv_close(conv_id);
-		return 0;
-	} else {
-		iconv_close(conv_id);
-		return 1;
-	}
-}
-
-/* in php-mapi the PROPVAL_TYPE_STRING means utf-8 string
-	PROPVAL_TYPE_WSTRING means utf-16 string, there's no
-	definition for ansi string */
-static uint32_t proptag_to_phptag(uint32_t proptag)
+/* in php-mapi the PROPVAL_TYPE_STRING means utf-8
+	string we don't user PROPVAL_TYPE_WSTRING,
+	there's no definition for ansi string */
+uint32_t proptag_to_phptag(uint32_t proptag)
 {
 	uint32_t proptag1;
 	
@@ -62,7 +43,7 @@ static uint32_t proptag_to_phptag(uint32_t proptag)
 	return proptag1;
 }
 
-static uint32_t phptag_to_proptag(uint32_t proptag)
+uint32_t phptag_to_proptag(uint32_t proptag)
 {
 	uint32_t proptag1;
 	
@@ -181,6 +162,7 @@ zend_bool php_to_sortorder_set(zval *pzval,
 		} else {
 			proptag = idx;
 		}
+		proptag = phptag_to_proptag(proptag);
 		pset->psort[i].propid = proptag >> 16;
 		pset->psort[i].type = proptag & 0xFFFF;
 		convert_to_long_ex(&ppentry[0]);
@@ -315,6 +297,7 @@ static void* php_to_propval(zval **ppentry, uint16_t proptype)
 		}
 		break;
 	case PROPVAL_TYPE_STRING:
+	case PROPVAL_TYPE_WSTRING:
 		convert_to_string_ex(ppentry);
 		pvalue = emalloc(ppentry[0]->value.str.len + 1);
 		if (NULL == pvalue) {
@@ -323,18 +306,6 @@ static void* php_to_propval(zval **ppentry, uint16_t proptype)
 		memcpy(pvalue, ppentry[0]->value.str.val,
 			ppentry[0]->value.str.len);
 		((char*)pvalue)[ppentry[0]->value.str.len] = '\0';
-		break;
-	case PROPVAL_TYPE_WSTRING:
-		convert_to_string_ex(ppentry);
-		pvalue = emalloc(2*ppentry[0]->value.str.len + 3);
-		if (NULL == pvalue) {
-			return NULL;
-		}
-		if (!utf16_to_utf8(ppentry[0]->value.str.val,
-			ppentry[0]->value.str.len, pvalue,
-			2*ppentry[0]->value.str.len + 3)) {
-			return NULL;	
-		}
 		break;
 	case PROPVAL_TYPE_GUID:
 		convert_to_string_ex(ppentry);
@@ -440,43 +411,8 @@ static void* php_to_propval(zval **ppentry, uint16_t proptype)
 			zend_hash_move_forward(pdata_hash);
 		}
 		break;
-	case PROPVAL_TYPE_WSTRING_ARRAY:
-		pdata_hash = HASH_OF(ppentry[0]);
-		if (NULL == pdata_hash) {
-			return NULL;
-		}
-		pvalue = emalloc(sizeof(STRING_ARRAY));
-		if (NULL == pvalue) {
-			return NULL;
-		}
-		((STRING_ARRAY*)pvalue)->count =
-			zend_hash_num_elements(pdata_hash);
-		if (0 == ((STRING_ARRAY*)pvalue)->count) {
-			((STRING_ARRAY*)pvalue)->ppstr = NULL;
-			break;
-		}
-		((STRING_ARRAY*)pvalue)->ppstr = emalloc(
-			sizeof(char*)*((STRING_ARRAY*)pvalue)->count);
-		if (NULL == ((STRING_ARRAY*)pvalue)->ppstr) {
-			return NULL;
-		}
-		zend_hash_internal_pointer_reset(pdata_hash);
-		for (j=0; j<((STRING_ARRAY*)pvalue)->count; j++) {
-			zend_hash_get_current_data(
-				pdata_hash, (void**)&ppdata_entry);
-			convert_to_string_ex(ppdata_entry);
-			pstring = emalloc(2*ppdata_entry[0]->value.str.len + 3);
-			if (NULL == pstring || !utf16_to_utf8(
-				ppdata_entry[0]->value.str.val,
-				ppdata_entry[0]->value.str.len,
-				pstring, 2*ppdata_entry[0]->value.str.len + 3)) {
-				return NULL;
-			}
-			((STRING_ARRAY*)pvalue)->ppstr[j] = pstring;
-			zend_hash_move_forward(pdata_hash);
-		}
-		break;
 	case PROPVAL_TYPE_STRING_ARRAY:
+	case PROPVAL_TYPE_WSTRING_ARRAY:
 		pdata_hash = HASH_OF(ppentry[0]);
 		if (NULL == pdata_hash) {
 			return NULL;
@@ -1043,7 +979,7 @@ zend_bool php_to_restriction(zval *pzval, RESTRICTION *pres TSRMLS_DC)
 			return 0;
 		}
 		((RESTRICTION_SUBOBJ*)pres->pres)->subobject =
-						ppvalue_entry[0]->value.lval;
+			phptag_to_proptag(ppvalue_entry[0]->value.lval);
 		if (zend_hash_index_find(
 			pdata_hash, IDX_RESTRICTION,
 			(void**)&ppvalue_entry) == FAILURE) {
@@ -1122,6 +1058,9 @@ zend_bool php_to_restriction(zval *pzval, RESTRICTION *pres TSRMLS_DC)
 			((RESTRICTION_CONTENT*)pres->pres)->propval.pvalue =
 				php_to_propval(ppvalue_entry,
 				((RESTRICTION_CONTENT*)pres->pres)->proptag&0xFFFF);
+			if (NULL == ((RESTRICTION_CONTENT*)pres->pres)->propval.pvalue) {
+				return 0;
+			}
 		}
 		break;
 	case RESTRICTION_TYPE_PROPERTY:
@@ -1164,6 +1103,9 @@ zend_bool php_to_restriction(zval *pzval, RESTRICTION *pres TSRMLS_DC)
 			((RESTRICTION_PROPERTY*)pres->pres)->propval.pvalue =
 				php_to_propval(ppvalue_entry,
 				((RESTRICTION_PROPERTY*)pres->pres)->proptag&0xFFFF);
+			if (NULL == ((RESTRICTION_PROPERTY*)pres->pres)->propval.pvalue) {
+				return 0;
+			}
 		}
 		break;
 	case RESTRICTION_TYPE_PROPCOMPARE:
@@ -1184,14 +1126,14 @@ zend_bool php_to_restriction(zval *pzval, RESTRICTION *pres TSRMLS_DC)
 		}
 		convert_to_long_ex(ppvalue_entry);
 		((RESTRICTION_PROPCOMPARE*)pres->pres)->proptag1 =
-								ppvalue_entry[0]->value.lval;
+			phptag_to_proptag(ppvalue_entry[0]->value.lval);
 		if (zend_hash_index_find(pdata_hash, IDX_PROPTAG2,
 			(void **)&ppvalue_entry) == FAILURE) {
 			return 0;
 		}
 		convert_to_long_ex(ppvalue_entry);
 		((RESTRICTION_PROPCOMPARE*)pres->pres)->proptag2 =
-								ppvalue_entry[0]->value.lval;
+			phptag_to_proptag(ppvalue_entry[0]->value.lval);
 		break;
 	case RESTRICTION_TYPE_BITMASK:
 		pres->pres = emalloc(sizeof(RESTRICTION_BITMASK));

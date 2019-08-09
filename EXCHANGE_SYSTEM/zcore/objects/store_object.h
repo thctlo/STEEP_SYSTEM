@@ -18,6 +18,8 @@ typedef struct _STORE_OBJECT {
 } STORE_OBJECT;
 
 
+struct _PERMISSION_SET;
+
 STORE_OBJECT* store_object_create(BOOL b_private,
 	int account_id, const char *account, const char *dir);
 
@@ -71,5 +73,8 @@ BOOL store_object_set_properties(STORE_OBJECT *pstore,
 
 BOOL store_object_remove_properties(STORE_OBJECT *pstore,
 	const PROPTAG_ARRAY *pproptags);
+	
+BOOL store_object_get_permissions(STORE_OBJECT *pstore,
+	struct _PERMISSION_SET *pperm_set);
 
 #endif /* _H_STORE_OBJECT_ */

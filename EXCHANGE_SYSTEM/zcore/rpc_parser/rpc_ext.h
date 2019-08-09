@@ -16,6 +16,10 @@ typedef struct _REQ_LOGON {
 	uint32_t flags;
 } REQ_LOGON;
 
+typedef struct _REQ_CHECKSESSION {
+	GUID hsession;
+} REQ_CHECKSESSION;
+
 typedef struct _REQ_UINFO {
 	char *username;
 } REQ_UINFO;
@@ -55,7 +59,7 @@ typedef struct _REQ_OPENRULES {
 
 typedef struct _REQ_GETPERMISSIONS {
 	GUID hsession;
-	uint32_t hfolder;
+	uint32_t hobject;
 } REQ_GETPERMISSIONS;
 
 typedef struct _REQ_MODIFYPERMISSIONS {
@@ -547,6 +551,7 @@ typedef struct _REQ_VCFTOMESSAGE {
 
 typedef union _REQUEST_PAYLOAD {
 	REQ_LOGON logon;
+	REQ_CHECKSESSION checksession;
 	REQ_UINFO uinfo;
 	REQ_UNLOADOBJECT unloadobject;
 	REQ_OPENENTRY openentry;

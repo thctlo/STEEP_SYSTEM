@@ -62,7 +62,7 @@ BOOL folder_object_get_all_proptags(FOLDER_OBJECT *pfolder,
 		return FALSE;		
 	}
 	pproptags->pproptag = common_util_alloc(sizeof(
-		uint32_t)*(tmp_proptags.count + 25));
+		uint32_t)*(tmp_proptags.count + 30));
 	if (NULL == pproptags->pproptag) {
 		return FALSE;
 	}
@@ -70,6 +70,8 @@ BOOL folder_object_get_all_proptags(FOLDER_OBJECT *pfolder,
 		sizeof(uint32_t)*tmp_proptags.count);
 	pproptags->count = tmp_proptags.count;
 	pproptags->pproptag[pproptags->count] = PROP_TAG_ACCESS;
+	pproptags->count ++;
+	pproptags->pproptag[pproptags->count] = PROP_TAG_ENTRYID;
 	pproptags->count ++;
 	pproptags->pproptag[pproptags->count] = PROP_TAG_OBJECTTYPE;
 	pproptags->count ++;
@@ -299,6 +301,12 @@ static BOOL folder_object_get_calculated_property(
 				return TRUE;
 			}
 		}
+		if (FALSE == exmdb_client_get_folder_property(
+			store_object_get_dir(pfolder->pstore), 0,
+			pfolder->folder_id, PROP_TAG_PARENTFOLDERID,
+			&pvalue) || NULL == pvalue) {
+			return FALSE;	
+		}
 		*ppvalue = common_util_calculate_folder_sourcekey(
 					pfolder->pstore, *(uint64_t*)pvalue);
 		return TRUE;
@@ -395,6 +403,23 @@ static BOOL folder_object_get_calculated_property(
 		}
 		*ppvalue = common_util_to_folder_entryid(pfolder->pstore,
 					rop_util_make_eid_ex(1, PRIVATE_FID_TASKS));
+		return TRUE;
+	case PROP_TAG_REMINDERSONLINEENTRYID:
+		if (FALSE == store_object_check_private(pfolder->pstore)) {
+			return FALSE;
+		}
+		if (pfolder->folder_id != rop_util_make_eid_ex(
+			1, PRIVATE_FID_ROOT)) {
+			return FALSE;	
+		}
+		if (FALSE == exmdb_client_get_folder_property(
+			store_object_get_dir(pfolder->pstore), 0,
+			rop_util_make_eid_ex(1, PRIVATE_FID_INBOX),
+			PROP_TAG_REMINDERSONLINEENTRYID, &pvalue) ||
+			NULL == pvalue) {
+			return FALSE;
+		}
+		*ppvalue = pvalue;
 		return TRUE;
 	case PROP_TAG_ADDITIONALRENENTRYIDS:
 		if (FALSE == store_object_check_private(pfolder->pstore)) {
@@ -648,13 +673,15 @@ BOOL folder_object_set_properties(FOLDER_OBJECT *pfolder,
 	if (0 == tmp_propvals.count) {
 		return TRUE;
 	}
-	tmp_propvals.count = 0;
 	count = ppropvals->count + 4;
 	tmp_propvals.ppropval = common_util_alloc(
 				sizeof(TAGGED_PROPVAL)*count);
 	if (NULL == tmp_propvals.ppropval) {
 		return FALSE;
 	}
+	memcpy(tmp_propvals.ppropval, ppropvals->ppropval,
+			sizeof(TAGGED_PROPVAL)*ppropvals->count);
+	tmp_propvals.count = ppropvals->count;
 	if (FALSE == exmdb_client_allocate_cn(
 		store_object_get_dir(pfolder->pstore),
 		&change_num)) {
@@ -796,11 +823,12 @@ BOOL folder_object_get_permissions(FOLDER_OBJECT *pfolder,
 	PERMISSION_SET *pperm_set)
 {
 	int i;
-	void *pvalue;
 	uint32_t flags;
 	const char *dir;
 	uint32_t row_num;
+	uint32_t *prights;
 	uint32_t table_id;
+	BINARY *pentry_id;
 	PROPTAG_ARRAY proptags;
 	TARRAY_SET permission_set;
 	static uint32_t proptag_buff[] = {
@@ -830,30 +858,27 @@ BOOL folder_object_get_permissions(FOLDER_OBJECT *pfolder,
 	exmdb_client_unload_table(dir, table_id);
 	pperm_set->count = 0;
 	pperm_set->prows = common_util_alloc(sizeof(
-			PERMISSION_ROW)*permission_set.count);
+		PERMISSION_ROW)*(permission_set.count));
 	if (NULL == pperm_set->prows) {
 		return FALSE;
 	}
 	for (i=0; i<permission_set.count; i++) {
-		pperm_set->prows[pperm_set->count].flags =
-										RIGHT_NORMAL;
-		pvalue = common_util_get_propvals(
-				permission_set.pparray[i],
-				PROP_TAG_ENTRYID);
+		pperm_set->prows[pperm_set->count].flags = RIGHT_NORMAL;
+		pentry_id = common_util_get_propvals(
+			permission_set.pparray[i], PROP_TAG_ENTRYID);
 		/* ignore the default and anonymous user */
-		if (NULL == pvalue || 0 == ((BINARY*)pvalue)->cb) {
+		if (NULL == pentry_id || 0 == pentry_id->cb) {
 			continue;
 		}
-		pperm_set->prows[pperm_set->count].entryid =
-									*(BINARY*)pvalue;
-		pvalue = common_util_get_propvals(
+		prights = common_util_get_propvals(
 				permission_set.pparray[i],
 				PROP_TAG_MEMBERRIGHTS);
-		if (NULL == pvalue) {
+		if (NULL == prights) {
 			continue;
 		}
-		pperm_set->prows[pperm_set->count].member_rights =
-										*(uint32_t*)pvalue;
+		pperm_set->prows[pperm_set->count].flags = RIGHT_NORMAL;
+		pperm_set->prows[pperm_set->count].entryid = *pentry_id;
+		pperm_set->prows[pperm_set->count].member_rights = *prights;
 		pperm_set->count ++;
 	}
 	return TRUE;

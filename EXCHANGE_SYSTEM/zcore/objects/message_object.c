@@ -29,24 +29,6 @@ BOOL message_object_get_recipient_all_proptags(
 						pmessage->instance_id, pproptags);
 }
 
-static uint32_t message_object_rectify_proptag(uint32_t proptag)
-{
-	switch (proptag & 0xFFFF) {
-	case PROPVAL_TYPE_STRING:
-		proptag &= 0xFFFF0000;
-		proptag |= PROPVAL_TYPE_WSTRING;
-		break;
-	case PROPVAL_TYPE_STRING_ARRAY:
-		proptag &= 0xFFFF0000;
-		proptag |= PROPVAL_TYPE_WSTRING_ARRAY;
-		break;
-	case PROPVAL_TYPE_UNSPECIFIED:
-		proptag |= PROPVAL_TYPE_WSTRING;
-		break;
-	}
-	return proptag;
-}
-
 MESSAGE_OBJECT* message_object_create(STORE_OBJECT *pstore,
 	BOOL b_new, uint32_t cpid, uint64_t message_id,
 	void *pparent, uint32_t tag_access, BOOL b_writable,
@@ -971,7 +953,7 @@ BOOL message_object_get_all_proptags(MESSAGE_OBJECT *pmessage,
 	}
 	pproptags->count = 0;
 	pproptags->pproptag = common_util_alloc(
-		sizeof(uint32_t)*(tmp_proptags.count + 10));
+		sizeof(uint32_t)*(tmp_proptags.count + 15));
 	if (NULL == pproptags->pproptag) {
 		return FALSE;
 	}
@@ -993,9 +975,13 @@ BOOL message_object_get_all_proptags(MESSAGE_OBJECT *pmessage,
 	}
 	pproptags->pproptag[pproptags->count] = PROP_TAG_ACCESS;
 	pproptags->count ++;
+	pproptags->pproptag[pproptags->count] = PROP_TAG_ENTRYID;
+	pproptags->count ++;
 	pproptags->pproptag[pproptags->count] = PROP_TAG_ACCESSLEVEL;
 	pproptags->count ++;
 	pproptags->pproptag[pproptags->count] = PROP_TAG_OBJECTTYPE;
+	pproptags->count ++;
+	pproptags->pproptag[pproptags->count] = PROP_TAG_PARENTENTRYID;
 	pproptags->count ++;
 	pproptags->pproptag[pproptags->count] = PROP_TAG_PARENTSOURCEKEY;
 	pproptags->count ++;
@@ -1209,8 +1195,8 @@ BOOL message_object_get_properties(MESSAGE_OBJECT *pmessage,
 	}
 	if (FALSE == exmdb_client_get_instance_properties(
 		store_object_get_dir(pmessage->pstore),
-		0, pmessage->instance_id, &tmp_proptags,
-		&tmp_propvals)) {
+		pmessage->cpid, pmessage->instance_id,
+		&tmp_proptags, &tmp_propvals)) {
 		return FALSE;	
 	}
 	if (tmp_propvals.count > 0) {
@@ -1378,8 +1364,7 @@ static BOOL message_object_set_properties_internal(
 			continue;
 		}
 		pmessage->b_touched = TRUE;
-		proptag = message_object_rectify_proptag(
-				ppropvals->ppropval[i].proptag);
+		proptag = ppropvals->ppropval[i].proptag;
 		proptag_array_remove(
 			pmessage->premoved_proptags, proptag);
 		if (FALSE == proptag_array_append(
@@ -1471,8 +1456,7 @@ BOOL message_object_remove_properties(MESSAGE_OBJECT *pmessage,
 			continue;
 		}
 		pmessage->b_touched = TRUE;
-		proptag = message_object_rectify_proptag(
-						pproptags->pproptag[i]);
+		proptag = pproptags->pproptag[i];
 		proptag_array_remove(
 			pmessage->pchanged_proptags, proptag);
 		if (FALSE == proptag_array_append(
@@ -1489,7 +1473,6 @@ BOOL message_object_copy_to(
 	BOOL *pb_cycle)
 {
 	int i;
-	uint32_t proptag;
 	PROPTAG_ARRAY proptags;
 	MESSAGE_CONTENT msgctnt;
 	PROBLEM_ARRAY tmp_problems;
@@ -1554,8 +1537,8 @@ BOOL message_object_copy_to(
 		return TRUE;
 	}
 	for (i=0; i<proptags.count; i++) {
-		proptag = message_object_rectify_proptag(proptags.pproptag[i]);
-		proptag_array_append(pmessage->pchanged_proptags, proptag);
+		proptag_array_append(pmessage->pchanged_proptags,
+			proptags.pproptag[i]);
 	}
 	return TRUE;
 }

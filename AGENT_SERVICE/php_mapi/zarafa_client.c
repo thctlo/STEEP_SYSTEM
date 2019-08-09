@@ -160,6 +160,19 @@ uint32_t zarafa_client_logon(const char *username,
 	return response.result;
 }
 
+uint32_t zarafa_client_checksession(GUID hsession)
+{
+	RPC_REQUEST request;
+	RPC_RESPONSE response;
+	
+	request.call_id = CALL_ID_CHECKSESSION;
+	request.payload.checksession.hsession = hsession;
+	if (!zarafa_client_do_rpc(&request, &response)) {
+		return EC_RPC_FAIL;
+	}
+	return response.result;
+}
+
 uint32_t zarafa_client_uinfo(const char *username,
 	BINARY *pentryid, char **ppdisplay_name, char **ppx500dn)
 {
@@ -290,14 +303,14 @@ uint32_t zarafa_client_openrules(GUID hsession,
 }
 
 uint32_t zarafa_client_getpermissions(GUID hsession,
-	uint32_t hfolder, PERMISSION_SET *pperm_set)
+	uint32_t hobject, PERMISSION_SET *pperm_set)
 {
 	RPC_REQUEST request;
 	RPC_RESPONSE response;
 	
 	request.call_id = CALL_ID_GETPERMISSIONS;
 	request.payload.getpermissions.hsession = hsession;
-	request.payload.getpermissions.hfolder = hfolder;
+	request.payload.getpermissions.hobject = hobject;
 	if (!zarafa_client_do_rpc(&request, &response)) {
 		return EC_RPC_FAIL;
 	}

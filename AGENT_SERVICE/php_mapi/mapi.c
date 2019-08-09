@@ -325,25 +325,27 @@ static zend_bool stream_object_set_length(
 {
 	void *pdata;
 	
+	/* always leave trail null for string */
 	if (NULL == pstream->content_bin.pb) {
-		pstream->content_bin.pb = emalloc(length);
+		pstream->content_bin.pb = emalloc(length + 1);
 		if (NULL == pstream->content_bin.pb) {
 			return 0;
 		}
-		memset(pstream->content_bin.pb, 0, length);
+		memset(pstream->content_bin.pb, 0, length + 1);
 	} else if (length > pstream->content_bin.cb) {
-		pdata = erealloc(pstream->content_bin.pb, length);
+		pdata = erealloc(pstream->content_bin.pb, length + 1);
 		if (NULL == pdata) {
 			return 0;
 		}
 		pstream->content_bin.pb = pdata;
 		memset(pstream->content_bin.pb
 			+ pstream->content_bin.cb, 0,
-			length - pstream->content_bin.cb);
+			length + 1 - pstream->content_bin.cb);
 	} else {
 		if (pstream->seek_offset > length) {
 			pstream->seek_offset = length;
 		}
+		pstream->content_bin.pb[length] = '\0';
 	}
 	pstream->content_bin.cb = length;
 	return 1;
@@ -487,25 +489,10 @@ static uint32_t stream_object_commit(STREAM_OBJECT *pstream)
 			pstream->hsession, pstream->hparent,
 			pstream->proptag, &pstream->content_bin);
 	case PROPVAL_TYPE_STRING:
+	case PROPVAL_TYPE_WSTRING:
 		return zarafa_client_setpropval(pstream->hsession,
 			pstream->hparent, pstream->proptag & 0xFFFF0000
 			| PROPVAL_TYPE_WSTRING, pstream->content_bin.pb);
-	case PROPVAL_TYPE_WSTRING:
-		pstring = emalloc(2*pstream->content_bin.cb + 3);
-		if (NULL == pstring) {
-			return EC_OUT_OF_MEMORY;
-		}
-		if (!utf16_to_utf8(pstream->content_bin.pb,
-			pstream->content_bin.cb, pstring,
-			2*pstream->content_bin.cb + 3)) {
-			efree(pstring);
-			return EC_ERROR;
-		}
-		result = zarafa_client_setpropval(
-			pstream->hsession, pstream->hparent,
-			pstream->proptag, pstring);
-		efree(pstring);
-		return result;
 	default:
 		return EC_INVALID_PARAMETER;
 	}
@@ -3271,7 +3258,7 @@ ZEND_FUNCTION(mapi_openpropertytostream)
 		pstream, probject->hsession,
 		probject->hobject, proptag);
 	result = zarafa_client_getpropval(probject->hsession,
-					probject->hobject, proptag, &pvalue);
+		probject->hobject, phptag_to_proptag(proptag), &pvalue);
 	if (EC_SUCCESS != result) {
 		MAPI_G(hr) = result;
 		goto THROW_EXCEPTION;
@@ -3831,11 +3818,11 @@ ZEND_FUNCTION(mapi_openproperty)
 		if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
 			"rlsll", &pzresource, &proptag, &guidstr,
 			&guidlen, &interfaceflags, &flags) == FAILURE ||
-			NULL == pzresource || sizeof(GUID) != guidlen) {
+			NULL == pzresource || NULL == guidstr) {
 			MAPI_G(hr) = EC_INVALID_PARAMETER;
 			goto THROW_EXCEPTION;
 		}
-		ext_pack_pull_init(&pull_ctx, guidstr, guidlen);
+		ext_pack_pull_init(&pull_ctx, guidstr, sizeof(GUID));
 		ext_pack_pull_guid(&pull_ctx, &iid_guid);
 	}
 	zend_list_find(Z_RESVAL_P(pzresource), &type);
@@ -3882,7 +3869,7 @@ ZEND_FUNCTION(mapi_openproperty)
 			goto THROW_EXCEPTION;
 		}
 		result = zarafa_client_getpropval(probject->hsession,
-						probject->hobject, proptag, &pvalue);
+			probject->hobject, phptag_to_proptag(proptag), &pvalue);
 		if (EC_SUCCESS != result) {
 			MAPI_G(hr) = result;
 			goto THROW_EXCEPTION;
@@ -4233,7 +4220,7 @@ ZEND_FUNCTION(mapi_getnamesfromids)
 		if (KIND_NONE == propnames.ppropname[i].kind) {
 			continue;
 		}
-		snprintf(num_buff, 20, "%i", proptags.pproptag[i]);
+		snprintf(num_buff, 20, "%i", proptag_to_phptag(proptags.pproptag[i]));
 		MAKE_STD_ZVAL(pzprop);
 		array_init(pzprop);
 		add_assoc_stringl(pzprop, "guid",
@@ -4613,8 +4600,8 @@ ZEND_FUNCTION(mapi_zarafa_getpermissionrules)
 	uint32_t result;
 	zval *pzresource;
 	zval *pzdata_value;
-	MAPI_RESOURCE *pfolder;
 	PERMISSION_SET perm_set;
+	MAPI_RESOURCE *presource;
 	
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
 		"rl", &pzresource, &acl_type) == FAILURE || NULL
@@ -4627,10 +4614,17 @@ ZEND_FUNCTION(mapi_zarafa_getpermissionrules)
 		goto THROW_EXCEPTION;
 	}
 	zend_list_find(Z_RESVAL_P(pzresource), &type);
-	if (type == le_mapi_folder) {
-		ZEND_FETCH_RESOURCE(pfolder, MAPI_RESOURCE*,
+	if (type == le_mapi_msgstore) {
+		ZEND_FETCH_RESOURCE(presource, MAPI_RESOURCE*,
+			&pzresource, -1, name_mapi_msgstore, le_mapi_msgstore);
+		if (MAPI_STORE != presource->type) {
+			MAPI_G(hr) = EC_INVALID_OBJECT;
+			goto THROW_EXCEPTION;
+		}
+	} else if (type == le_mapi_folder) {
+		ZEND_FETCH_RESOURCE(presource, MAPI_RESOURCE*,
 			&pzresource, -1, name_mapi_folder, le_mapi_folder);
-		if (MAPI_FOLDER != pfolder->type) {
+		if (MAPI_FOLDER != presource->type) {
 			MAPI_G(hr) = EC_INVALID_OBJECT;
 			goto THROW_EXCEPTION;
 		}
@@ -4639,7 +4633,7 @@ ZEND_FUNCTION(mapi_zarafa_getpermissionrules)
 		goto THROW_EXCEPTION;
 	}
 	result = zarafa_client_getpermissions(
-		pfolder->hsession, pfolder->hobject,
+		presource->hsession, presource->hobject,
 		&perm_set);
 	if (EC_SUCCESS != result) {
 		MAPI_G(hr) = result;
@@ -6534,6 +6528,7 @@ ZEND_FUNCTION(kc_session_restore)
 {
 	zval *pzres;
 	zval *pzdata;
+	GUID hsession;
 	BINARY data_bin;
 	uint32_t result;
 	PULL_CTX pull_ctx;
@@ -6547,6 +6542,16 @@ ZEND_FUNCTION(kc_session_restore)
 	}
 	data_bin.pb = Z_STRVAL_P(pzdata);
 	data_bin.cb = Z_STRLEN_P(pzdata);
+	ext_pack_pull_init(&pull_ctx, data_bin.pb, data_bin.cb);
+	if (!ext_pack_pull_guid(&pull_ctx, &hsession)) {
+		RETVAL_LONG(EC_INVALID_PARAMETER);
+		return;
+	}
+	result = zarafa_client_checksession(hsession);
+	if (EC_SUCCESS != result) {
+		RETVAL_LONG(result);
+		return;
+	}
 	presource = emalloc(sizeof(MAPI_RESOURCE));
 	if (NULL == presource) {
 		RETVAL_LONG(EC_OUT_OF_MEMORY);
@@ -6554,11 +6559,7 @@ ZEND_FUNCTION(kc_session_restore)
 	}
 	presource->type = MAPI_SESSION;
 	presource->hobject = 0;
-	ext_pack_pull_init(&pull_ctx, data_bin.pb, data_bin.cb);
-	if (!ext_pack_pull_guid(&pull_ctx, &presource->hsession)) {
-		RETVAL_LONG(EC_INVALID_PARAMETER);
-		return;
-	}
+	presource->hsession = hsession;
 	ZEND_REGISTER_RESOURCE(pzres, presource, le_mapi_session);
 	RETVAL_LONG(EC_SUCCESS);
 }

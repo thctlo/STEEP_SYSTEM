@@ -188,7 +188,9 @@ static BOOL oxomsg_check_permission(const char *account,
 	item_num = list_file_get_item_num(pfile);
 	pitem = list_file_get_list(pfile);
 	for (i=0; i<item_num; i++) {
-		if (0 == strcasecmp(pitem + 256*i, account)) {
+		if (0 == strcasecmp(pitem + 256*i, account) ||
+			TRUE == common_util_check_mlist_include(
+			pitem + 256*i, account)) {
 			list_file_free(pfile);
 			return TRUE;
 		}
@@ -682,7 +684,6 @@ uint32_t rop_transportsend(TPROPVAL_ARRAY **pppropvals,
 {
 	void *pvalue;
 	int object_type;
-	uint64_t nt_time;
 	char username[256];
 	const char *account;
 	LOGON_OBJECT *plogon;
@@ -757,9 +758,11 @@ uint32_t rop_transportsend(TPROPVAL_ARRAY **pppropvals,
 		if (NULL == common_util_get_propvals(
 			*pppropvals, PROP_TAG_PROVIDERSUBMITTIME)) {
 			propval.proptag = PROP_TAG_PROVIDERSUBMITTIME;
-			nt_time = rop_util_current_nttime();
-			propval.pvalue = &nt_time;
-			common_util_set_propvals(*pppropvals, &propval);
+			propval.pvalue = common_util_alloc(sizeof(uint64_t));
+			if (NULL != propval.pvalue) {
+				*(uint64_t*)propval.pvalue = rop_util_current_nttime();
+				common_util_set_propvals(*pppropvals, &propval);
+			}
 		}
 	}
 	if (FALSE == common_util_send_message(plogon,

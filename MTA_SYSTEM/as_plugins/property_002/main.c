@@ -75,7 +75,6 @@ static int head_filter(int context_ID, MAIL_ENTITY *pmail,
 {
 	int tag_len;
 	int val_len;
-	int tmp_len;
 	char buff[1024];
 	
 	if (TRUE == pmail->penvelop->is_relay ||
@@ -88,11 +87,6 @@ static int head_filter(int context_ID, MAIL_ENTITY *pmail,
 	if (0 != mem_file_get_total_length(&pmail->phead->f_xmailer)) {
 		return MESSAGE_ACCEPT;
 	}
-	tmp_len = mem_file_read(&pmail->phead->f_mime_to, buff, 1024);
-	if (tmp_len > 0 && NULL != memchr(buff, '<', tmp_len)
-		&& NULL != memchr(buff, '>', tmp_len)) {
-		return MESSAGE_ACCEPT;
-	}
 	while (MEM_END_OF_FILE != mem_file_read(
 		&pmail->phead->f_others, &tag_len, sizeof(int))) {
 		if (8 == tag_len) {
@@ -103,8 +97,7 @@ static int head_filter(int context_ID, MAIL_ENTITY *pmail,
 					return MESSAGE_ACCEPT;
 				}
 				mem_file_read(&pmail->phead->f_others, buff, val_len);
-				if (NULL == search_string(buff, " localhost ", val_len) &&
-					NULL == search_string(buff, "[127.0.0.1]", val_len)) {
+				if (NULL == search_string(buff, " localhost ", val_len)) {
 					return MESSAGE_ACCEPT;
 				}
 				continue;

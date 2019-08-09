@@ -77,6 +77,10 @@ static int rpc_parser_dispatch(const RPC_REQUEST *prequest,
 			prequest->payload.logon.flags,
 			&presponse->payload.logon.hsession);
 		break;
+	case CALL_ID_CHECKSESSION:
+		presponse->result = zarafa_server_checksession(
+			prequest->payload.checksession.hsession);
+		break;
 	case CALL_ID_UINFO:
 		presponse->result = zarafa_server_uinfo(
 			prequest->payload.uinfo.username,
@@ -128,7 +132,7 @@ static int rpc_parser_dispatch(const RPC_REQUEST *prequest,
 	case CALL_ID_GETPERMISSIONS:
 		presponse->result = zarafa_server_getpermissions(
 			prequest->payload.getpermissions.hsession,
-			prequest->payload.getpermissions.hfolder,
+			prequest->payload.getpermissions.hobject,
 			&presponse->payload.getpermissions.perm_set);
 		break;
 	case CALL_ID_MODIFYPERMISSIONS:

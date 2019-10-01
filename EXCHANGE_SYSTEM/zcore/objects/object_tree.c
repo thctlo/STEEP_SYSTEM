@@ -6,7 +6,6 @@
 #include "object_tree.h"
 #include "user_object.h"
 #include "store_object.h"
-#include "rules_object.h"
 #include "table_object.h"
 #include "folder_object.h"
 #include "zarafa_server.h"
@@ -195,9 +194,6 @@ static void object_tree_free_object(void *pobject, uint8_t type)
 	case MAPI_FOLDER:
 		folder_object_free(pobject);
 		break;
-	case MAPI_RULES:
-		rules_object_free(pobject);
-		break;
 	case MAPI_STORE:
 		store_object_free(pobject);
 		break;
@@ -208,15 +204,6 @@ static void object_tree_free_object(void *pobject, uint8_t type)
 	case MAPI_PROFPROPERTY:
 		/* do not free TPROPVAL_ARRAY,
 		it's an element of pprof_set */
-		break;
-	case MAPI_FBDATA:
-		//TODO
-		break;
-	case MAPI_FBUPDATE:
-		//TODO
-		break;
-	case MAPI_FBENUMBLOCK:
-		//TODO
 		break;
 	case MAPI_ICSDOWNCTX:
 		icsdownctx_object_free(pobject);

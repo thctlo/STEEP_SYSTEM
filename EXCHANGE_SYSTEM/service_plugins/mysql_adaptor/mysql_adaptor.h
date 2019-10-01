@@ -20,6 +20,9 @@ void mysql_adaptor_free();
 
 BOOL mysql_adaptor_login(const char *username, const char *password,
 	char *maildir, char *lang, char *reason, int length);
+	
+BOOL mysql_adaptor_setpasswd(const char *username,
+	const char *password, const char *new_password);
 
 BOOL mysql_adaptor_get_username_from_id(int user_id, char *username);
 
@@ -30,9 +33,16 @@ BOOL mysql_adaptor_get_id_from_maildir(const char *maildir, int *puser_id);
 BOOL mysql_adaptor_get_user_displayname(
 	const char *username, char *pdisplayname);
 
+BOOL mysql_adaptor_get_user_privilege_bits(
+	const char *username, uint32_t *pprivilege_bits);
+
 BOOL mysql_adaptor_get_user_lang(const char *username, char *lang);
+
+BOOL mysql_adaptor_set_user_lang(const char *username, const char *lang);
 	
 BOOL mysql_adaptor_get_timezone(const char *username, char *timezone);
+
+BOOL mysql_adaptor_set_timezone(const char *username, const char *timezone);
 
 BOOL mysql_adaptor_get_maildir(const char *username, char *maildir);
 

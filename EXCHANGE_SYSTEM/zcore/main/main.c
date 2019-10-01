@@ -58,9 +58,12 @@ int main(int argc, char **argv)
 	char exmdb_path[256];
 	CONFIG_FILE *pconfig;
 	char config_path[256];
+	char langmap_path[256];
 	char service_path[256];
 	char resource_path[256];
 	char grouping_path[256];
+	char folderlang_path[256];
+	char submit_command[1024];
 	
 	
 	if (2 != argc) {
@@ -149,6 +152,8 @@ int main(int argc, char **argv)
 	printf("[system]: exmdb file path is %s\n", exmdb_path);
 	sprintf(resource_path, "%s/notify_bounce", data_path);
 	sprintf(grouping_path, "%s/msgchg_grouping", data_path);
+	sprintf(langmap_path, "%s/langmap.txt", data_path);
+	sprintf(folderlang_path, "%s/folder_lang.txt", data_path);
 	
 	msgchg_grouping_init(grouping_path);
 	service_init(threads_num, service_path, config_path, data_path);
@@ -295,8 +300,21 @@ int main(int argc, char **argv)
 	}
 	printf("[system]: smtp server is %s:%d\n", smtp_ip, smtp_port);
 	
+	str_value = config_file_get_value(pconfig, "SUBMIT_COMMAND");
+	if (NULL == str_value) {
+		printf("[system]: fail to get SUBMIT_COMMAND in config file!!!\n");
+		config_file_free(pconfig);
+		return -2;
+	}
+	strcpy(submit_command, str_value);
+	
+	str_value = config_file_get_value(pconfig, "FREEBUSY_TOOL_PATH");
+	if (NULL == str_value) {
+		str_value = "/var/pandora/tools/freebusy";
+	}
 	common_util_init(org_name, host_name, charset, timezone, mime_num,
-		max_rcpt, max_mail, max_length, max_rule_len, smtp_ip, smtp_port);
+		max_rcpt, max_mail, max_length, max_rule_len, smtp_ip, smtp_port,
+		str_value, langmap_path, folderlang_path, submit_command);
 	
 	str_value = config_file_get_value(pconfig, "RPC_PROXY_CONNECTION_NUM");
 	if (NULL == str_value) {

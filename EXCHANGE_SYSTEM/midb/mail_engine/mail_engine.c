@@ -42,7 +42,7 @@
 
 #define RELOAD_INTERVAL					3600
 
-#define DB_LOCK_TIMEOUT					30
+#define DB_LOCK_TIMEOUT					60
 
 #define MAX_DB_WAITING_THREADS			5
 
@@ -3789,12 +3789,12 @@ static int mail_engine_minst(int argc, char **argv, int sockd)
 		|| strlen(argv[2]) >= 1024) {
 		return 1;
 	}
-	if (argc > 4 && NULL != strchr(argv[4], 'U')) {
+	if (NULL != strchr(argv[4], 'U')) {
 		b_unsent = 1;
 	} else {
 		b_unsent = 0;
 	}
-	if (argc > 4 && NULL != strchr(argv[4], 'S')) {
+	if (NULL != strchr(argv[4], 'S')) {
 		b_read = 1;
 	} else {
 		b_read = 0;
@@ -4978,7 +4978,6 @@ static int mail_engine_pfddt(int argc, char **argv, int sockd)
 	int offset;
 	int sql_len;
 	int temp_len;
-	int sort_field;
 	IDB_ITEM *pidb;
 	uint32_t total;
 	uint32_t unreads;
@@ -4993,24 +4992,16 @@ static int mail_engine_pfddt(int argc, char **argv, int sockd)
 	if (5 != argc || strlen(argv[1]) >= 256 || strlen(argv[2]) >= 1024) {
 		return 1;	
 	}
-	if (0 == strcasecmp(argv[3], "RCV")) {
-		sort_field = FIELD_RECEIVED;
-	} else if (0 == strcasecmp(argv[3], "SUB")) {
-		sort_field = FIELD_SUBJECT;	
-	} else if (0 == strcasecmp(argv[3], "FRM")) {
-		sort_field = FIELD_FROM;
-	} else if (0 == strcasecmp(argv[3], "RCP")) {
-		sort_field = FIELD_RCPT;
-	} else if (0 == strcasecmp(argv[3], "SIZ")) {
-		sort_field = FIELD_SIZE;
-	} else if (0 == strcasecmp(argv[3], "RED")) {
-		sort_field = FIELD_READ;
-	} else if (0 == strcasecmp(argv[3], "FLG")) {
-		sort_field = FIELD_FLAG;
-	} else if (0 == strcasecmp(argv[3], "UID")) {
-		sort_field = FIELD_UID;
-	} else if (0 == strcasecmp(argv[3], "NON")) {
-		sort_field = FIELD_NONE;
+	if (0 == strcasecmp(argv[3], "RCV") ||
+		0 == strcasecmp(argv[3], "SUB") ||
+		0 == strcasecmp(argv[3], "FRM") ||
+		0 == strcasecmp(argv[3], "RCP") ||
+		0 == strcasecmp(argv[3], "SIZ") ||
+		0 == strcasecmp(argv[3], "RED") ||
+		0 == strcasecmp(argv[3], "FLG") ||
+		0 == strcasecmp(argv[3], "UID") ||
+		0 == strcasecmp(argv[3], "NON")) {
+		/* do nothing */
 	} else {
 		return 1;
 	}
@@ -5482,6 +5473,11 @@ static int mail_engine_psimu(int argc, char **argv, int sockd)
 				"replied, unsent, flagged, deleted, read, recent, forwarded "
 				"FROM messages WHERE folder_id=%llu AND uid>=%u ORDER BY idx",
 				folder_id, first);
+		} else if (last == first) {
+			sql_len = sprintf(sql_string, "SELECT idx, mid_string, uid, "
+				"replied, unsent, flagged, deleted, read, recent, forwarded "
+				"FROM messages WHERE folder_id=%llu AND uid=%u",
+				folder_id, first);
 		} else {
 			sql_len = sprintf(sql_string, "SELECT idx, mid_string, uid, "
 				"replied, unsent, flagged, deleted, read, recent, forwarded "
@@ -5518,6 +5514,11 @@ static int mail_engine_psimu(int argc, char **argv, int sockd)
 				"replied, unsent, flagged, deleted, read, recent, forwarded "
 				"FROM messages WHERE folder_id=%llu AND uid>=%u ORDER BY idx"
 				" DESC", folder_id, first);
+		} else if (last == first) {
+			sql_len = sprintf(sql_string, "SELECT idx, mid_string, uid, "
+				"replied, unsent, flagged, deleted, read, recent, forwarded "
+				"FROM messages WHERE folder_id=%llu AND uid=%u",
+				folder_id, first);
 		} else {
 			sql_len = sprintf(sql_string, "SELECT idx, mid_string, uid, "
 				"replied, unsent, flagged, deleted, read, recent, forwarded "
@@ -5807,6 +5808,10 @@ static int mail_engine_pdtlu(int argc, char **argv, int sockd)
 			sql_len = sprintf(sql_string, "SELECT idx, mid_string "
 					"FROM messages WHERE folder_id=%llu AND uid>=%u"
 					" ORDER BY idx", folder_id, first);
+		} else if (last == first) {
+			sql_len = sprintf(sql_string, "SELECT idx, mid_string "
+					"FROM messages WHERE folder_id=%llu AND uid=%u",
+					folder_id, first);
 		} else {
 			sql_len = sprintf(sql_string, "SELECT idx, mid_string "
 				"FROM messages WHERE folder_id=%llu AND uid>=%u AND"
@@ -5839,6 +5844,10 @@ static int mail_engine_pdtlu(int argc, char **argv, int sockd)
 			sql_len = sprintf(sql_string, "SELECT idx, mid_string "
 					"FROM messages WHERE folder_id=%llu AND uid>=%u"
 					" ORDER BY idx", folder_id, first);
+		} else if (last == first) {
+			sql_len = sprintf(sql_string, "SELECT idx, mid_string "
+					"FROM messages WHERE folder_id=%llu AND uid=%u",
+					folder_id, first);
 		} else {
 			sql_len = sprintf(sql_string, "SELECT idx, mid_string "
 				"FROM messages WHERE folder_id=%llu AND uid>=%u AND "

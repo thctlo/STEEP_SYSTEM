@@ -25,7 +25,7 @@
 #define MLIST_TYPE_DOMAIN				2
 #define MLIST_TYPE_CLASS				3
 
-#define USER_PRIVILEGE_POP3_IMAP		0x1
+#define USER_PRIVILEGE_CHGPASSWD		0x4
 #define USER_PRIVILEGE_PUBADDR			0x8
 
 
@@ -186,10 +186,7 @@ BOOL mysql_adaptor_login(const char *username, const char *password,
 	MYSQL_RES *pmyres, *pmyres1;
 	CONNECTION_NODE *pconnection;
 	
-	/* 
-	 * if no valid connection node available, it means the
-	 * database is down, return TRUE immediately!!!
-	 */
+	
 	if (g_conn_num == double_list_get_nodes_num(&g_invalid_list)) {
 		snprintf(reason, length, "these's no database connection alive, "
 			"please contact system administrator!");
@@ -202,9 +199,8 @@ BOOL mysql_adaptor_login(const char *username, const char *password,
 	
 RETRYING:
 	if (i > 3) {
-		/* database may break down, so return TRUE to avoid auth problem */
-		snprintf(reason, length, "system too busy, no free database "
-			"connection available");
+		snprintf(reason, length, "system too busy, no"
+				" free database connection available");
 		return FALSE;
 	}
 	pthread_mutex_lock(&g_list_lock);
@@ -291,14 +287,6 @@ RETRYING:
 		}
 		mysql_free_result(pmyres);
 		return FALSE;
-	}
-	
-	if (0 == (atoi(myrow[3])&USER_PRIVILEGE_POP3_IMAP)) {
-		mysql_free_result(pmyres);
-		strncpy(reason, "you are not authorized to download email through POP3 or IMAP"
-			"server", length);
-		return FALSE;
-
 	}
 
 	strncpy(encrypt_passwd, myrow[0], sizeof(encrypt_passwd));
@@ -418,6 +406,213 @@ RETRYING:
 			return FALSE;
 		}
 	}
+}
+
+BOOL mysql_adaptor_setpasswd(const char *username,
+	const char *password, const char *new_password)
+{
+	int i, j, k;
+	int temp_type;
+	int temp_status;
+	int rows, rows1;
+	char *pdomain, *pat;
+	char temp_name[512];
+	char sql_string[1024];
+	char encrypt_passwd[40];
+	char virtual_address[256];
+	MYSQL *pmysql;
+	MYSQL_ROW myrow, myrow1;
+	DOUBLE_LIST_NODE *pnode;
+	MYSQL_RES *pmyres, *pmyres1;
+	CONNECTION_NODE *pconnection;
+	
+	
+	if (g_conn_num == double_list_get_nodes_num(&g_invalid_list)) {
+		return FALSE;
+	}
+
+	mysql_adaptor_encode_squote(username, temp_name);
+	
+	i = 0;
+RETRYING:
+	if (i > 3) {
+		return FALSE;
+	}
+	pthread_mutex_lock(&g_list_lock);
+	pnode = double_list_get_from_head(&g_connection_list);
+	pthread_mutex_unlock(&g_list_lock);
+	
+	if (NULL == pnode) {
+		i ++;
+		sleep(1);
+		goto RETRYING;
+	}
+
+	pconnection = (CONNECTION_NODE*)pnode->pdata;
+	snprintf(sql_string, 1024, "SELECT password, address_type,"
+			" address_status, privilege_bits FROM users WHERE "
+			"username='%s'", temp_name);
+	if (0 != mysql_query(pconnection->pmysql, sql_string) ||
+		NULL == (pmyres = mysql_store_result(pconnection->pmysql))) {
+		/* try to reconnect mysql database */
+		mysql_close(pconnection->pmysql);
+		pconnection->pmysql = mysql_init(NULL);
+		if (NULL == pconnection->pmysql) {
+			pthread_mutex_lock(&g_list_lock);
+			double_list_append_as_tail(&g_invalid_list, &pconnection->node);
+			pthread_mutex_unlock(&g_list_lock);
+			i ++;
+			sleep(1);
+			goto RETRYING;
+		}
+
+		if (g_timeout > 0) {
+			mysql_options(pconnection->pmysql,
+				MYSQL_OPT_READ_TIMEOUT, &g_timeout);
+			mysql_options(pconnection->pmysql,
+				MYSQL_OPT_WRITE_TIMEOUT, &g_timeout);
+		}
+
+		if (NULL == mysql_real_connect(pconnection->pmysql, g_host,
+			g_user, g_password, g_db_name, g_port, NULL, 0) ||
+			0 != mysql_query(pconnection->pmysql, sql_string) ||
+			NULL == (pmyres = mysql_store_result(pconnection->pmysql))) {
+			mysql_close(pconnection->pmysql);
+			pconnection->pmysql = NULL;
+			pthread_mutex_lock(&g_list_lock);
+			double_list_append_as_tail(&g_invalid_list, &pconnection->node);
+			pthread_mutex_unlock(&g_list_lock);
+			i ++;
+			sleep(1);
+			goto RETRYING;
+		}
+	}
+	
+	pthread_mutex_lock(&g_list_lock);
+	double_list_append_as_tail(&g_connection_list, &pconnection->node);
+	pthread_mutex_unlock(&g_list_lock);
+
+	if (1 != mysql_num_rows(pmyres)) {
+		mysql_free_result(pmyres);
+		return FALSE;
+	}
+	
+	myrow = mysql_fetch_row(pmyres);
+	temp_type = atoi(myrow[1]);
+	if (ADDRESS_TYPE_NORMAL != temp_type && ADDRESS_TYPE_ALIAS != temp_type) {
+		mysql_free_result(pmyres);
+		return FALSE;
+	}
+	temp_status = atoi(myrow[2]);
+	if (0 != temp_status) {
+		mysql_free_result(pmyres);
+		return FALSE;
+	}
+	
+	if (0 == (atoi(myrow[3])&USER_PRIVILEGE_CHGPASSWD)) {
+		mysql_free_result(pmyres);
+		return FALSE;
+	}
+
+	strncpy(encrypt_passwd, myrow[0], sizeof(encrypt_passwd));
+	encrypt_passwd[sizeof(encrypt_passwd) - 1] = '\0';
+	mysql_free_result(pmyres);
+	
+	pthread_mutex_lock(&g_crypt_lock);
+	if ('\0' != encrypt_passwd[0] && 0 != strcmp(crypt(
+		password, encrypt_passwd), encrypt_passwd)) {
+		pthread_mutex_unlock(&g_crypt_lock);
+		return FALSE;
+	}
+	pthread_mutex_unlock(&g_crypt_lock);
+	
+	pdomain = strchr(username, '@');
+	if (NULL == pdomain) {
+		return FALSE;
+	}
+	pdomain ++;
+	
+	pthread_mutex_lock(&g_crypt_lock);
+	strcpy(encrypt_passwd, md5_crypt_wrapper(new_password));
+	pthread_mutex_unlock(&g_crypt_lock);
+
+	pmysql = mysql_init(NULL);
+	if (NULL == pmysql) {
+		return FALSE;
+	}
+
+	if (g_timeout > 0) {
+		mysql_options(pmysql, MYSQL_OPT_READ_TIMEOUT, &g_timeout);
+		mysql_options(pmysql, MYSQL_OPT_WRITE_TIMEOUT, &g_timeout);
+	}
+		
+	if (NULL == mysql_real_connect(pmysql, g_host, g_user,
+		g_password, g_db_name, g_port, NULL, 0)) {
+		mysql_close(pmysql);
+		return FALSE;
+	}
+
+	snprintf(sql_string, 1024, "UPDATE users SET password='%s'"
+			" WHERE username='%s'", encrypt_passwd, temp_name);
+	if (0 != mysql_query(pmysql, sql_string)) {
+		mysql_close(pmysql);
+		return FALSE;
+	}
+
+	snprintf(sql_string, 1024, "SELECT aliasname FROM"
+			" aliases WHERE mainname='%s'", temp_name);
+	if (0 != mysql_query(pmysql, sql_string) ||
+		NULL == (pmyres = mysql_store_result(pmysql))) {
+		mysql_close(pmysql);
+		return FALSE;
+	}
+
+	mysql_adaptor_encode_squote(pdomain, temp_name);
+	snprintf(sql_string, 1024, "SELECT aliasname FROM"
+			" aliases WHERE mainname='%s'", temp_name);
+	if (0 != mysql_query(pmysql, sql_string) ||
+		NULL == (pmyres1 = mysql_store_result(pmysql))) {
+		mysql_free_result(pmyres);
+		mysql_close(pmysql);
+		return FALSE;
+	}
+	rows = mysql_num_rows(pmyres);
+	rows1 = mysql_num_rows(pmyres1);
+
+	for (k=0; k<rows1; k++) {
+		myrow1 = mysql_fetch_row(pmyres1);
+		strcpy(virtual_address, username);
+		pat = strchr(virtual_address, '@') + 1;
+		strcpy(pat, myrow1[0]);
+		mysql_adaptor_encode_squote(virtual_address, temp_name);
+		snprintf(sql_string, 1024, "UPDATE users SET password='%s'"
+				" WHERE username='%s'", encrypt_passwd, temp_name);
+		mysql_query(pmysql, sql_string);
+	}
+
+	for (j=0; j<rows; j++) {
+		myrow = mysql_fetch_row(pmyres);
+		mysql_adaptor_encode_squote(myrow[0], temp_name);
+		snprintf(sql_string, 1024, "UPDATE users SET password='%s'"
+				" WHERE username='%s'", encrypt_passwd, temp_name);
+		mysql_query(pmysql, sql_string);
+
+		mysql_data_seek(pmyres1, 0);
+		for (k=0; k<rows1; k++) {
+			myrow1 = mysql_fetch_row(pmyres1);
+			strcpy(virtual_address, myrow[0]);
+			pat = strchr(virtual_address, '@') + 1;
+			strcpy(pat, myrow1[0]);
+			mysql_adaptor_encode_squote(virtual_address, temp_name);
+			snprintf(sql_string, 1024, "UPDATE users SET password='%s'"
+					" WHERE username='%s'", encrypt_passwd, temp_name);
+			mysql_query(pmysql, sql_string);
+		}
+	}
+	mysql_free_result(pmyres1);
+	mysql_free_result(pmyres);
+	mysql_close(pmysql);
+	return TRUE;
 }
 
 BOOL mysql_adaptor_get_username_from_id(int user_id, char *username)
@@ -803,6 +998,100 @@ RETRYING:
 	return TRUE;
 }
 
+BOOL mysql_adaptor_get_user_privilege_bits(
+	const char *username, uint32_t *pprivilege_bits)
+{
+	int i;
+	MYSQL *pmysql;
+	MYSQL_ROW myrow;
+	MYSQL_RES *pmyres;
+	char temp_name[512];
+	char sql_string[1024];
+	DOUBLE_LIST_NODE *pnode;
+	CONNECTION_NODE *pconnection;
+	
+	/* 
+	 * if no valid connection node available, it means the
+	 * database is down, return immediately!!!
+	 */
+	if (g_conn_num == double_list_get_nodes_num(&g_invalid_list)) {
+		return FALSE;
+	}
+
+	mysql_adaptor_encode_squote(username, temp_name);
+	
+	i = 0;
+	
+RETRYING:
+	if (i > 3) {
+		return FALSE;
+	}
+	pthread_mutex_lock(&g_list_lock);
+	pnode = double_list_get_from_head(&g_connection_list);
+	pthread_mutex_unlock(&g_list_lock);
+	
+	if (NULL == pnode) {
+		i ++;
+		sleep(1);
+		goto RETRYING;
+	}
+
+	pconnection = (CONNECTION_NODE*)pnode->pdata;
+	
+	snprintf(sql_string, 1024, "SELECT privilege_bits"
+		" FROM users WHERE username='%s'", temp_name);
+	
+	if (0 != mysql_query(pconnection->pmysql, sql_string) ||
+		NULL == (pmyres = mysql_store_result(pconnection->pmysql))) {
+		/* try to reconnect mysql database */
+		mysql_close(pconnection->pmysql);
+		pconnection->pmysql = mysql_init(NULL);
+		if (NULL == pconnection->pmysql) {
+			pthread_mutex_lock(&g_list_lock);
+			double_list_append_as_tail(&g_invalid_list, &pconnection->node);
+			pthread_mutex_unlock(&g_list_lock);
+			i ++;
+			sleep(1);
+			goto RETRYING;
+		}
+
+		if (g_timeout > 0) {
+			mysql_options(pconnection->pmysql,
+				MYSQL_OPT_READ_TIMEOUT, &g_timeout);
+			mysql_options(pconnection->pmysql,
+				MYSQL_OPT_WRITE_TIMEOUT, &g_timeout);
+		}
+
+		if (NULL == mysql_real_connect(pconnection->pmysql, g_host,
+			g_user, g_password, g_db_name, g_port, NULL, 0) ||
+			0 != mysql_query(pconnection->pmysql, sql_string) ||
+			NULL == (pmyres = mysql_store_result(pconnection->pmysql))) {
+			mysql_close(pconnection->pmysql);
+			pconnection->pmysql = NULL;
+			pthread_mutex_lock(&g_list_lock);
+			double_list_append_as_tail(&g_invalid_list, &pconnection->node);
+			pthread_mutex_unlock(&g_list_lock);
+			i ++;
+			sleep(1);
+			goto RETRYING;
+		}
+	}
+	
+	pthread_mutex_lock(&g_list_lock);
+	double_list_append_as_tail(&g_connection_list, &pconnection->node);
+	pthread_mutex_unlock(&g_list_lock);
+
+	if (1 != mysql_num_rows(pmyres)) {
+		mysql_free_result(pmyres);
+		return FALSE;
+	}
+	
+	myrow = mysql_fetch_row(pmyres);
+	*pprivilege_bits = atoi(myrow[0]);
+	mysql_free_result(pmyres);
+	return TRUE;
+}
+
 BOOL mysql_adaptor_get_user_lang(const char *username, char *lang)
 {
 	int i;
@@ -892,6 +1181,79 @@ RETRYING:
 	return TRUE;
 }
 
+BOOL mysql_adaptor_set_user_lang(const char *username, const char *lang)
+{
+	int i;
+	char temp_name[512];
+	char sql_string[1024];
+	DOUBLE_LIST_NODE *pnode;
+	CONNECTION_NODE *pconnection;
+	
+	/* if no valid connection node available, return immediately */
+	if (g_conn_num == double_list_get_nodes_num(&g_invalid_list)) {
+		return FALSE;
+	}
+	mysql_adaptor_encode_squote(username, temp_name);
+	i = 0;
+	
+RETRYING:
+	if (i > 3) {
+		return FALSE;
+	}
+	pthread_mutex_lock(&g_list_lock);
+	pnode = double_list_get_from_head(&g_connection_list);
+	pthread_mutex_unlock(&g_list_lock);
+	
+	if (NULL == pnode) {
+		i ++;
+		sleep(1);
+		goto RETRYING;
+	}
+	pconnection = (CONNECTION_NODE*)pnode->pdata;
+	
+	snprintf(sql_string, 1024, "UPDATE users set "
+		"lang='%s' WHERE username='%s'", lang, temp_name);
+	
+	if (0 != mysql_query(pconnection->pmysql, sql_string)) {
+		/* try to reconnect mysql database */
+		mysql_close(pconnection->pmysql);
+		pconnection->pmysql = mysql_init(NULL);
+		if (NULL == pconnection->pmysql) {
+			pthread_mutex_lock(&g_list_lock);
+			double_list_append_as_tail(&g_invalid_list, &pconnection->node);
+			pthread_mutex_unlock(&g_list_lock);
+			i ++;
+			sleep(1);
+			goto RETRYING;
+		}
+
+		if (g_timeout > 0) {
+			mysql_options(pconnection->pmysql, MYSQL_OPT_READ_TIMEOUT,
+				&g_timeout);
+			mysql_options(pconnection->pmysql, MYSQL_OPT_WRITE_TIMEOUT,
+				&g_timeout);
+		}
+
+		if (NULL == mysql_real_connect(pconnection->pmysql, g_host, g_user,
+			g_password, g_db_name, g_port, NULL, 0) ||
+			0 != mysql_query(pconnection->pmysql, sql_string)) {
+			mysql_close(pconnection->pmysql);
+			pconnection->pmysql = NULL;
+			pthread_mutex_lock(&g_list_lock);
+			double_list_append_as_tail(&g_invalid_list, &pconnection->node);
+			pthread_mutex_unlock(&g_list_lock);
+			i ++;
+			sleep(1);
+			goto RETRYING;
+		}
+	}
+	
+	pthread_mutex_lock(&g_list_lock);
+	double_list_append_as_tail(&g_connection_list, &pconnection->node);
+	pthread_mutex_unlock(&g_list_lock);
+	return TRUE;
+}
+
 BOOL mysql_adaptor_get_timezone(const char *username, char *timezone)
 {
 	int i;
@@ -978,6 +1340,81 @@ RETRYING:
 		strcpy(timezone, myrow[0]);
 	}
 	mysql_free_result(pmyres);
+	return TRUE;
+}
+
+BOOL mysql_adaptor_set_timezone(const char *username, const char *timezone)
+{
+	int i;
+	char temp_name[512];
+	char temp_zone[128];
+	char sql_string[1024];
+	DOUBLE_LIST_NODE *pnode;
+	CONNECTION_NODE *pconnection;
+	
+	/* if no valid connection node available, return immediately */
+	if (g_conn_num == double_list_get_nodes_num(&g_invalid_list)) {
+		return FALSE;
+	}
+	mysql_adaptor_encode_squote(username, temp_name);
+	mysql_adaptor_encode_squote(timezone, temp_zone);
+	i = 0;
+	
+RETRYING:
+	if (i > 3) {
+		return FALSE;
+	}
+	pthread_mutex_lock(&g_list_lock);
+	pnode = double_list_get_from_head(&g_connection_list);
+	pthread_mutex_unlock(&g_list_lock);
+	
+	if (NULL == pnode) {
+		i ++;
+		sleep(1);
+		goto RETRYING;
+	}
+	pconnection = (CONNECTION_NODE*)pnode->pdata;
+	
+	snprintf(sql_string, 1024, "UPDATE users set timezone='%s'"
+				" WHERE username='%s'", temp_zone, temp_name);
+	
+	if (0 != mysql_query(pconnection->pmysql, sql_string)) {
+		/* try to reconnect mysql database */
+		mysql_close(pconnection->pmysql);
+		pconnection->pmysql = mysql_init(NULL);
+		if (NULL == pconnection->pmysql) {
+			pthread_mutex_lock(&g_list_lock);
+			double_list_append_as_tail(&g_invalid_list, &pconnection->node);
+			pthread_mutex_unlock(&g_list_lock);
+			i ++;
+			sleep(1);
+			goto RETRYING;
+		}
+
+		if (g_timeout > 0) {
+			mysql_options(pconnection->pmysql, MYSQL_OPT_READ_TIMEOUT,
+				&g_timeout);
+			mysql_options(pconnection->pmysql, MYSQL_OPT_WRITE_TIMEOUT,
+				&g_timeout);
+		}
+
+		if (NULL == mysql_real_connect(pconnection->pmysql, g_host, g_user,
+			g_password, g_db_name, g_port, NULL, 0) ||
+			0 != mysql_query(pconnection->pmysql, sql_string)) {
+			mysql_close(pconnection->pmysql);
+			pconnection->pmysql = NULL;
+			pthread_mutex_lock(&g_list_lock);
+			double_list_append_as_tail(&g_invalid_list, &pconnection->node);
+			pthread_mutex_unlock(&g_list_lock);
+			i ++;
+			sleep(1);
+			goto RETRYING;
+		}
+	}
+	
+	pthread_mutex_lock(&g_list_lock);
+	double_list_append_as_tail(&g_connection_list, &pconnection->node);
+	pthread_mutex_unlock(&g_list_lock);
 	return TRUE;
 }
 

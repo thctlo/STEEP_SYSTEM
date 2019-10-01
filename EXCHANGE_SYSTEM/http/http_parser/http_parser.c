@@ -42,34 +42,6 @@ typedef struct _VIRTUAL_CONNECTION {
 	HTTP_CONTEXT  *pcontext_outsucc;
 } VIRTUAL_CONNECTION;
 
- enum {
-	SW_USUAL = 0,
-	SW_SLASH,
-	SW_DOT,
-	SW_DOT_DOT,
-	SW_QUOTED,
-	SW_QUOTED_SECOND
-};
-
-static uint32_t  g_uri_usual[] = {
-    0xffffdbfe, /* 1111 1111 1111 1111  1101 1011 1111 1110 */
-
-                /* ?>=< ;:98 7654 3210  /.-, +*)( '&%$ #"!  */
-    0x7fff37d6, /* 0111 1111 1111 1111  0011 0111 1101 0110 */
-
-                /* _^]\ [ZYX WVUT SRQP  ONML KJIH GFED CBA@ */
-
-    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
-
-                /*  ~}| {zyx wvut srqp  onml kjih gfed cba` */
-    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
-
-    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
-    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
-    0xffffffff, /* 1111 1111 1111 1111  1111 1111 1111 1111 */
-    0xffffffff  /* 1111 1111 1111 1111  1111 1111 1111 1111 */
-};
-
 static int g_context_num;
 static BOOL g_async_stop;
 static BOOL g_support_ssl;
@@ -102,214 +74,6 @@ static void http_parser_ssl_locking(int mode,
 
 static void http_parser_ssl_id(CRYPTO_THREADID* id);
 
-
-BOOL http_parser_parse_uri(const char *uri_buff, char *parsed_uri)
-{
-	int tmp_len;
-	const char *p;
-	const char *uri_end;
-	const char *args_start;
-	int state, quoted_state;
-    char c, ch, decoded, *u;
-    
-	decoded = '\0';
-	quoted_state = SW_USUAL;
-	state = SW_USUAL;
-	p = uri_buff;
-	uri_end = uri_buff + strlen(uri_buff);
-	u = parsed_uri;
-	args_start = NULL;
-	ch = *p ++;
-	while (p <= uri_end) {
-		switch (state) {
-		case SW_USUAL:
-			if (g_uri_usual[ch >> 5] & (1U << (ch & 0x1f))) {
-				*u++ = ch;
-				ch = *p++;
-				break;
-			}
-			switch (ch) {
-			case '/':
-				state = SW_SLASH;
-				*u ++ = ch;
-				break;
-			case '%':
-				quoted_state = state;
-				state = SW_QUOTED;
-				break;
-			case '?':
-				args_start = p;
-				goto PARSE_ARGS;
-			case '#':
-				goto PARSE_DONE;
-			default:
-				*u ++ = ch;
-				break;
-			}
-			ch = *p ++;
-			break;
-		case SW_SLASH:
-			if (g_uri_usual[ch >> 5] & (1U << (ch & 0x1f))) {
-				state = SW_USUAL;
-				*u ++ = ch;
-				ch = *p ++;
-				break;
-			}
-			switch (ch) {
-			case '/':
-				/* merge slash */
-				break;
-			case '.':
-				state = SW_DOT;
-				*u ++ = ch;
-				break;
-			case '%':
-				quoted_state = state;
-				state = SW_QUOTED;
-				break;
-			case '?':
-				args_start = p;
-				goto PARSE_ARGS;
-			case '#':
-				goto PARSE_DONE;
-			default:
-				state = SW_USUAL;
-				*u ++ = ch;
-				break;
-			}
-			ch = *p ++;
-			break;
-		case SW_DOT:
-			if (g_uri_usual[ch >> 5] & (1U << (ch & 0x1f))) {
-				state = SW_USUAL;
-				*u ++ = ch;
-				ch = *p ++;
-				break;
-			}
-			switch (ch) {
-			case '/':
-				state = SW_SLASH;
-				u --;
-				break;
-			case '.':
-				state = SW_DOT_DOT;
-				*u ++ = ch;
-				break;
-			case '%':
-				quoted_state = state;
-				state = SW_QUOTED;
-				break;
-			case '?':
-				args_start = p;
-				goto PARSE_ARGS;
-			case '#':
-				goto PARSE_DONE;
-			default:
-				state = SW_USUAL;
-				*u ++ = ch;
-				break;
-			}
-			ch = *p ++;
-			break;
-		case SW_DOT_DOT:
-			if (g_uri_usual[ch >> 5] & (1U << (ch & 0x1f))) {
-				state = SW_USUAL;
-				*u ++ = ch;
-				ch = *p ++;
-				break;
-			}
-			switch (ch) {
-			case '/':
-				state = SW_SLASH;
-				u -= 5;
-				for ( ;; ) {
-					if (u < parsed_uri) {
-						return FALSE;
-					}
-					if ('/' == *u) {
-						u ++;
-						break;
-					}
-					u --;
-				}
-				break;
-			case '%':
-				quoted_state = state;
-				state = SW_QUOTED;
-				break;
-			case '?':
-				args_start = p;
-				goto PARSE_ARGS;
-			case '#':
-				goto PARSE_DONE;
-			default:
-				state = SW_USUAL;
-				*u ++ = ch;
-				break;
-			}
-			ch = *p ++;
-			break;
-		case SW_QUOTED:
-			if (ch >= '0' && ch <= '9') {
-				decoded = (uint8_t)(ch - '0');
-				state = SW_QUOTED_SECOND;
-				ch = *p ++;
-				break;
-			}
-			c = (uint8_t)(ch | 0x20);
-			if (c >= 'a' && c <= 'f') {
-				decoded = (uint8_t)(c - 'a' + 10);
-				state = SW_QUOTED_SECOND;
-				ch = *p ++;
-				break;
-			}
-			return FALSE;
-		case SW_QUOTED_SECOND:
-			if (ch >= '0' && ch <= '9') {
-				ch = (uint8_t)((decoded << 4) + (ch - '0'));
-				if ('%' == ch || '#' == ch) {
-					state = SW_USUAL;
-					*u ++ = ch;
-					ch = *p ++;
-					break;
-
-				} else if ('\0' == ch) {
-					return FALSE;
-				}
-				state = quoted_state;
-				break;
-			}
-
-			c = (uint8_t)(ch | 0x20);
-			if (c >= 'a' && c <= 'f') {
-				ch = (uint8_t) ((decoded << 4) + (c - 'a') + 10);
-				if ('?' == ch) {
-					state = SW_USUAL;
-					*u ++ = ch;
-					ch = *p ++;
-					break;
-
-				}
-				state = quoted_state;
-				break;
-			}
-			return FALSE;
-		}
-	}
-PARSE_ARGS:
-    while (p < uri_end) {
-        if (*p ++ != '#') {
-            continue;
-        }
-		tmp_len = p - args_start;
-		memcpy(u, args_start, tmp_len);
-		u += tmp_len;
-        break;
-    }
-PARSE_DONE:
-	*u = '\0';
-    return TRUE;
-}
 
 void http_parser_init(int context_num, unsigned int timeout,
 	int max_auth_times, int block_auth_fail, BOOL support_ssl,
@@ -1185,6 +949,8 @@ CONTEXT_PROCESSING:
 					goto INERTNAL_SERVER_ERROR;
 				case HPM_RETRIEVE_WRITE:
 					break;
+				case HPM_RETRIEVE_NONE:
+					return PROCESS_CONTINUE;
 				case HPM_RETRIEVE_WAIT:
 					pcontext->sched_stat = SCHED_STAT_WAIT;
 					return PROCESS_IDLE;
@@ -1751,8 +1517,9 @@ CONTEXT_PROCESSING:
 				goto END_PROCESSING;
 			}
 			
-			if (pcontext != pvconnection->pcontext_in ||
-				NULL == pvconnection->pcontext_out) {
+			if ((pcontext != pvconnection->pcontext_in &&
+				pcontext != pvconnection->pcontext_insucc)
+				|| NULL == pvconnection->pcontext_out) {
 				http_parser_put_vconnection(pvconnection);
 				pdu_processor_free_call(pcall);
 				http_parser_log_info(pcontext, 8,
@@ -2499,6 +2266,7 @@ BOOL http_parser_recycle_outchannel(
 BOOL http_parser_activate_inrecycling(
 	HTTP_CONTEXT *pcontext, const char *successor_cookie)
 {
+	RPC_IN_CHANNEL *pchannel_in;
 	VIRTUAL_CONNECTION *pvconnection;
 	
 	if (CHANNEL_TYPE_IN != pcontext->channel_type) {
@@ -2509,15 +2277,15 @@ BOOL http_parser_activate_inrecycling(
 		pcontext->pchannel)->connection_cookie);
 	
 	if (NULL != pvconnection) {
-		if (pcontext == pvconnection->pcontext_in &&
-			NULL != pvconnection->pcontext_insucc &&
+		if (pcontext == pvconnection->pcontext_insucc &&
 			0 == strcmp(successor_cookie, ((RPC_IN_CHANNEL*)
 			pvconnection->pcontext_insucc->pchannel)->channel_cookie)) {
+			if (NULL != pvconnection->pcontext_in) {
+				pchannel_in = pvconnection->pcontext_in->pchannel;
+				pchannel_in->channel_stat = CHANNEL_STAT_RECYCLED;
+			}
+			pvconnection->pcontext_in = pcontext;
 			((RPC_IN_CHANNEL*)pcontext->pchannel)->channel_stat =
-											CHANNEL_STAT_RECYCLED;
-			pvconnection->pcontext_in = pvconnection->pcontext_insucc;
-			((RPC_IN_CHANNEL*)
-				pvconnection->pcontext_in->pchannel)->channel_stat =
 												CHANNEL_STAT_OPENED;
 			pvconnection->pcontext_insucc = NULL;
 			http_parser_put_vconnection(pvconnection);

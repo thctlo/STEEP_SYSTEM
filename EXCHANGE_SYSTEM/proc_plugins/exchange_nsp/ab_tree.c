@@ -1472,6 +1472,15 @@ SIMPLE_TREE_NODE* ab_tree_dn_to_node(AB_BASE *pbase, const char *pdn)
 	if (NULL != ppnode) {
 		return *ppnode;
 	}
+	pthread_mutex_lock(&g_remote_lock);
+	for (psnode=single_list_get_head(&pbase->remote_list); NULL!=psnode;
+		psnode=single_list_get_after(&pbase->remote_list, psnode)) {
+		if (minid == ((AB_NODE*)psnode->pdata)->minid) {
+			pthread_mutex_unlock(&g_remote_lock);
+			return psnode->pdata;
+		}
+	}
+	pthread_mutex_unlock(&g_remote_lock);
 	for (psnode=single_list_get_head(&pbase->list); NULL!=psnode;
 		psnode=single_list_get_after(&pbase->list, psnode)) {
 		if (((DOMAIN_NODE*)psnode->pdata)->domain_id == domain_id) {
@@ -1620,9 +1629,14 @@ void ab_tree_get_display_name(SIMPLE_TREE_NODE *pnode,
 			sizeof(int), MEM_FILE_SEEK_CUR);
 		switch (list_type) {
 		case MLIST_TYPE_NORMAL:
-			if (FALSE == get_lang(codepage, "mlist0", str_dname, 256)) {
-				strcpy(str_dname, "custom address list");
+			mem_file_seek(&fake_file, MEM_FILE_READ_PTR, 0, MEM_FILE_SEEK_BEGIN);
+			mem_file_read(&fake_file, &temp_len, sizeof(int));
+			mem_file_read(&fake_file, title, temp_len);
+			title[temp_len] = '\0';
+			if (FALSE == get_lang(codepage, "mlist0", lang_string, 256)) {
+				strcpy(lang_string, "custom address list");
 			}
+			snprintf(str_dname, 256, "%s(%s)", title, lang_string);
 			break;
 		case MLIST_TYPE_GROUP:
 			mem_file_read(&fake_file, &temp_len, sizeof(int));

@@ -48,7 +48,10 @@ static zend_bool rpc_ext_pull_uinfo_response(
 	if (!ext_pack_pull_string(pctx, &ppayload->uinfo.pdisplay_name)) {
 		return 0;
 	}
-	return ext_pack_pull_string(pctx, &ppayload->uinfo.px500dn);
+	if (!ext_pack_pull_string(pctx, &ppayload->uinfo.px500dn)) {
+		return 0;
+	}
+	return ext_pack_pull_uint32(pctx, &ppayload->uinfo.privilege_bits);
 }
 
 static zend_bool rpc_ext_push_unloadobject_request(
@@ -140,21 +143,6 @@ static zend_bool rpc_ext_pull_resolvename_response(
 		&ppayload->resolvename.result_set);
 }
 
-static zend_bool rpc_ext_push_openrules_request(
-	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
-{
-	if (!ext_pack_push_guid(pctx, &ppayload->openrules.hsession)) {
-		return 0;
-	}
-	return ext_pack_push_uint32(pctx, ppayload->openrules.hfolder);
-}
-
-static zend_bool rpc_ext_pull_openrules_response(
-	PULL_CTX *pctx, RESPONSE_PAYLOAD *ppayload)
-{
-	return ext_pack_pull_uint32(pctx, &ppayload->openrules.hobject);
-}
-
 static zend_bool rpc_ext_push_getpermissions_request(
 	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
 {
@@ -191,7 +179,7 @@ static zend_bool rpc_ext_push_modifyrules_request(
 	if (!ext_pack_push_guid(pctx, &ppayload->modifyrules.hsession)) {
 		return 0;
 	}
-	if (!ext_pack_push_uint32(pctx, ppayload->modifyrules.hrules)) {
+	if (!ext_pack_push_uint32(pctx, ppayload->modifyrules.hfolder)) {
 		return 0;
 	}
 	if (!ext_pack_push_uint32(pctx, ppayload->modifyrules.flags)) {
@@ -325,7 +313,7 @@ static zend_bool rpc_ext_push_loadruletable_request(
 	if (!ext_pack_push_guid(pctx, &ppayload->loadruletable.hsession)) {
 		return 0;
 	}
-	return ext_pack_push_uint32(pctx, ppayload->loadruletable.hrules);
+	return ext_pack_push_uint32(pctx, ppayload->loadruletable.hfolder);
 }
 
 static zend_bool rpc_ext_pull_loadruletable_response(
@@ -1430,195 +1418,6 @@ static zend_bool rpc_ext_push_setsearchcriteria_request(
 	}
 }
 
-static zend_bool rpc_ext_push_openfreebusydata_request(
-	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
-{
-	if (!ext_pack_push_guid(pctx, &ppayload->openfreebusydata.hsession)) {
-		return 0;
-	}
-	if (!ext_pack_push_uint32(pctx, ppayload->openfreebusydata.hsupport)) {
-		return 0;
-	}
-	return ext_pack_push_binary_array(pctx,
-		ppayload->openfreebusydata.pentryids);
-}
-
-static zend_bool rpc_ext_pull_openfreebusydata_response(
-	PULL_CTX *pctx, RESPONSE_PAYLOAD *ppayload)
-{
-	return ext_pack_pull_long_array(pctx,
-		&ppayload->openfreebusydata.hobject_array);
-}
-
-static zend_bool rpc_ext_push_enumfreebusyblocks_request(
-	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
-{
-	if (!ext_pack_push_guid(pctx,
-		&ppayload->enumfreebusyblocks.hsession)) {
-		return 0;	
-	}
-	if (!ext_pack_push_uint32(pctx,
-		ppayload->enumfreebusyblocks.hfbdata)) {
-		return 0;
-	}
-	if (!ext_pack_push_uint64(pctx,
-		ppayload->enumfreebusyblocks.nttime_start)) {
-		return 0;	
-	}
-	return ext_pack_push_uint64(pctx,
-		ppayload->enumfreebusyblocks.nttime_end);
-}
-
-static zend_bool rpc_ext_pull_enumfreebusyblocks_response(
-	PULL_CTX *pctx, RESPONSE_PAYLOAD *ppayload)
-{
-	return ext_pack_pull_uint32(pctx,
-		&ppayload->enumfreebusyblocks.hobject);
-}
-
-static zend_bool rpc_ext_push_fbenumreset_request(
-	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
-{
-	if (!ext_pack_push_guid(pctx, &ppayload->fbenumreset.hsession)) {
-		return 0;
-	}
-	return ext_pack_push_uint32(pctx, ppayload->fbenumreset.hfbenum);
-}
-
-static zend_bool rpc_ext_push_fbenumskip_request(
-	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
-{
-	if (!ext_pack_push_guid(pctx, &ppayload->fbenumskip.hsession)) {
-		return 0;
-	}
-	if (!ext_pack_push_uint32(pctx, ppayload->fbenumskip.hfbenum)) {
-		return 0;
-	}
-	return ext_pack_push_uint32(pctx, ppayload->fbenumskip.num);
-}
-
-static zend_bool rpc_ext_push_fbenumrestrict_request(
-	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
-{
-	if (!ext_pack_push_guid(pctx, &ppayload->fbenumrestrict.hsession)) {
-		return 0;
-	}
-	if (!ext_pack_push_uint32(pctx, ppayload->fbenumrestrict.hfbenum)) {
-		return 0;
-	}
-	if (!ext_pack_push_uint64(pctx,
-		ppayload->fbenumrestrict.nttime_start)) {
-		return 0;
-	}
-	return ext_pack_push_uint64(pctx,
-		ppayload->fbenumrestrict.nttime_end);
-}
-
-static zend_bool rpc_ext_push_fbenumexport_request(
-	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
-{
-	if (!ext_pack_push_guid(pctx, &ppayload->fbenumexport.hsession)) {
-		return 0;
-	}
-	if (!ext_pack_push_uint32(pctx, ppayload->fbenumexport.hfbenum)) {
-		return 0;
-	}
-	if (!ext_pack_push_uint32(pctx, ppayload->fbenumexport.count)) {
-		return 0;
-	}
-	if (!ext_pack_push_uint64(pctx, ppayload->fbenumexport.nttime_start)) {
-		return 0;
-	}
-	if (!ext_pack_push_uint64(pctx, ppayload->fbenumexport.nttime_end)) {
-		return 0;
-	}
-	if (NULL == ppayload->fbenumexport.organizer_name) {
-		if (!ext_pack_push_uint8(pctx, 0)) {
-			return 0;
-		}
-	} else {
-		if (!ext_pack_push_uint8(pctx, 1)) {
-			return 0;
-		}
-		if (!ext_pack_push_string(pctx,
-			ppayload->fbenumexport.organizer_name)) {
-			return 0;	
-		}
-	}
-	if (NULL == ppayload->fbenumexport.username) {
-		if (!ext_pack_push_uint8(pctx, 0)) {
-			return 0;
-		}
-	} else {
-		if (!ext_pack_push_uint8(pctx, 1)) {
-			return 0;
-		}
-		if (!ext_pack_push_string(pctx,
-			ppayload->fbenumexport.username)) {
-			return 0;	
-		}
-	}
-	if (NULL == ppayload->fbenumexport.uid_string) {
-		return ext_pack_push_uint8(pctx, 0);
-	} else {
-		if (!ext_pack_push_uint8(pctx, 1)) {
-			return 0;
-		}
-		return ext_pack_push_string(pctx,
-			ppayload->fbenumexport.uid_string);
-	}
-}
-
-static zend_bool rpc_ext_pull_fbenumexport_response(
-	PULL_CTX *pctx, RESPONSE_PAYLOAD *ppayload)
-{
-	return ext_pack_pull_binary(pctx, &ppayload->fbenumexport.bin_ical);
-}
-
-static zend_bool rpc_ext_push_fetchfreebusyblocks_request(
-	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
-{
-	if (!ext_pack_push_guid(pctx,
-		&ppayload->fetchfreebusyblocks.hsession)) {
-		return 0;	
-	}
-	if (!ext_pack_push_uint32(pctx,
-		ppayload->fetchfreebusyblocks.hfbenum)) {
-		return 0;
-	}
-	return ext_pack_push_uint32(pctx,
-		ppayload->fetchfreebusyblocks.celt);
-}
-
-static zend_bool rpc_ext_pull_fetchfreebusyblocks_response(
-	PULL_CTX *pctx, RESPONSE_PAYLOAD *ppayload)
-{
-	return ext_pack_pull_fbblock_array(pctx,
-		&ppayload->fetchfreebusyblocks.blocks);
-}
-
-static zend_bool rpc_ext_push_getfreebusyrange_request(
-	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
-{
-	if (!ext_pack_push_guid(pctx,
-		&ppayload->getfreebusyrange.hsession)) {
-		return 0;	
-	}
-	return ext_pack_push_uint32(pctx,
-		ppayload->getfreebusyrange.hfbdata);
-}
-
-static zend_bool rpc_ext_pull_getfreebusyrange_response(
-	PULL_CTX *pctx, RESPONSE_PAYLOAD *ppayload)
-{
-	if (!ext_pack_pull_uint64(pctx,
-		&ppayload->getfreebusyrange.nttime_start)) {
-		return 0;	
-	}
-	return ext_pack_pull_uint64(pctx,
-		&ppayload->getfreebusyrange.nttime_end);
-}
-
 static zend_bool rpc_ext_push_messagetorfc822_request(
 	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
 {
@@ -1708,7 +1507,7 @@ static zend_bool rpc_ext_push_vcftomessage_request(
 {
 	if (!ext_pack_push_guid(pctx,
 		&ppayload->vcftomessage.hsession)) {
-		return 0;	
+		return 0;
 	}
 	if (!ext_pack_push_uint32(pctx,
 		ppayload->vcftomessage.hmessage)) {
@@ -1716,6 +1515,65 @@ static zend_bool rpc_ext_push_vcftomessage_request(
 	}
 	return ext_pack_push_binary(pctx,
 		ppayload->vcftomessage.pvcf_bin);
+}
+
+static zend_bool rpc_ext_push_getuseravailability_request(
+	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
+{
+	if (!ext_pack_push_guid(pctx,
+		&ppayload->vcftomessage.hsession)) {
+		return 0;
+	}
+	if (!ext_pack_push_binary(pctx,
+		&ppayload->getuseravailability.entryid)) {
+		return 0;
+	}
+	if (!ext_pack_push_uint64(pctx,
+		ppayload->getuseravailability.starttime)) {
+		return 0;	
+	}
+	return ext_pack_push_uint64(pctx,
+		ppayload->getuseravailability.endtime);
+}
+
+static zend_bool rpc_ext_pull_getuseravailability_reponse(
+	PULL_CTX *pctx, RESPONSE_PAYLOAD *ppayload)
+{
+	uint8_t tmp_byte;
+	
+	if (!ext_pack_pull_uint8(pctx, &tmp_byte)) {
+		return 0;
+	}
+	if (0 == tmp_byte) {
+		ppayload->getuseravailability.result_string = NULL;
+		return 1;
+	}
+	return ext_pack_pull_string(pctx,
+		&ppayload->getuseravailability.result_string);
+}
+
+static zend_bool rpc_ext_push_setpasswd_request(
+	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
+{
+	if (!ext_pack_push_string(pctx, ppayload->setpasswd.username)) {
+		return 0;	
+	}
+	if (!ext_pack_push_string(pctx, ppayload->setpasswd.passwd)) {
+		return 0;	
+	}
+	return ext_pack_push_string(pctx, ppayload->setpasswd.new_passwd);
+}
+
+static zend_bool rpc_ext_push_linkmessage_request(
+	PUSH_CTX *pctx, const REQUEST_PAYLOAD *ppayload)
+{
+	if (!ext_pack_push_guid(pctx, &ppayload->linkmessage.hsession)) {
+		return 0;
+	}
+	if (!ext_pack_push_binary(pctx, &ppayload->linkmessage.search_entryid)) {
+		return 0;
+	}
+	return ext_pack_push_binary(pctx, &ppayload->linkmessage.message_entryid);
 }
 
 zend_bool rpc_ext_push_request(const RPC_REQUEST *prequest,
@@ -1766,10 +1624,6 @@ zend_bool rpc_ext_push_request(const RPC_REQUEST *prequest,
 		break;
 	case CALL_ID_RESOLVENAME:
 		b_result = rpc_ext_push_resolvename_request(
-					&push_ctx, &prequest->payload);
-		break;
-	case CALL_ID_OPENRULES:
-		b_result = rpc_ext_push_openrules_request(
 					&push_ctx, &prequest->payload);
 		break;
 	case CALL_ID_GETPERMISSIONS:
@@ -2040,38 +1894,6 @@ zend_bool rpc_ext_push_request(const RPC_REQUEST *prequest,
 		b_result = rpc_ext_push_setsearchcriteria_request(
 							&push_ctx, &prequest->payload);
 		break;
-	case CALL_ID_OPENFREEBUSYDATA:
-		b_result = rpc_ext_push_openfreebusydata_request(
-							&push_ctx, &prequest->payload);
-		break;
-	case CALL_ID_ENUMFREEBUSYBLOCKS:
-		b_result = rpc_ext_push_enumfreebusyblocks_request(
-							&push_ctx, &prequest->payload);
-		break;
-	case CALL_ID_FBENUMRESET:
-		b_result = rpc_ext_push_fbenumreset_request(
-					&push_ctx, &prequest->payload);
-		break;
-	case CALL_ID_FBENUMSKIP:
-		b_result = rpc_ext_push_fbenumskip_request(
-					&push_ctx, &prequest->payload);
-		break;
-	case CALL_ID_FBENUMRESTRICT:
-		b_result = rpc_ext_push_fbenumrestrict_request(
-						&push_ctx, &prequest->payload);
-		break;
-	case CALL_ID_FBENUMEXPORT:
-		b_result = rpc_ext_push_fbenumexport_request(
-						&push_ctx, &prequest->payload);
-		break;
-	case CALL_ID_FETCHFREEBUSYBLOCKS:
-		b_result = rpc_ext_push_fetchfreebusyblocks_request(
-							&push_ctx, &prequest->payload);
-		break;
-	case CALL_ID_GETFREEBUSYRANGE:
-		b_result = rpc_ext_push_getfreebusyrange_request(
-							&push_ctx, &prequest->payload);
-		break;
 	case CALL_ID_MESSAGETORFC822:
 		b_result = rpc_ext_push_messagetorfc822_request(
 							&push_ctx, &prequest->payload);
@@ -2095,6 +1917,18 @@ zend_bool rpc_ext_push_request(const RPC_REQUEST *prequest,
 	case CALL_ID_VCFTOMESSAGE:
 		b_result = rpc_ext_push_vcftomessage_request(
 						&push_ctx, &prequest->payload);
+		break;
+	case CALL_ID_GETUSERAVAILABILITY:
+		b_result = rpc_ext_push_getuseravailability_request(
+							&push_ctx, &prequest->payload);
+		break;
+	case CALL_ID_SETPASSWD:
+		b_result = rpc_ext_push_setpasswd_request(
+					&push_ctx, &prequest->payload);
+		break;
+	case CALL_ID_LINKMESSAGE:
+		b_result = rpc_ext_push_linkmessage_request(
+					&push_ctx, &prequest->payload);
 		break;
 	default:
 		return 0;
@@ -2145,9 +1979,6 @@ zend_bool rpc_ext_pull_response(const BINARY *pbin_in,
 	case CALL_ID_RESOLVENAME:
 		return rpc_ext_pull_resolvename_response(
 					&pull_ctx, &presponse->payload);
-	case CALL_ID_OPENRULES:
-		return rpc_ext_pull_openrules_response(
-				&pull_ctx, &presponse->payload);
 	case CALL_ID_GETPERMISSIONS:
 		return rpc_ext_pull_getpermissions_response(
 					&pull_ctx, &presponse->payload);
@@ -2309,25 +2140,6 @@ zend_bool rpc_ext_pull_response(const BINARY *pbin_in,
 						&pull_ctx, &presponse->payload);
 	case CALL_ID_SETSEARCHCRITERIA:
 		return 1;
-	case CALL_ID_OPENFREEBUSYDATA:
-		return rpc_ext_pull_openfreebusydata_response(
-						&pull_ctx, &presponse->payload);
-	case CALL_ID_ENUMFREEBUSYBLOCKS:
-		return rpc_ext_pull_enumfreebusyblocks_response(
-						&pull_ctx, &presponse->payload);
-	case CALL_ID_FBENUMRESET:
-	case CALL_ID_FBENUMSKIP:
-	case CALL_ID_FBENUMRESTRICT:
-		return 1;
-	case CALL_ID_FBENUMEXPORT:
-		return rpc_ext_pull_fbenumexport_response(
-					&pull_ctx, &presponse->payload);
-	case CALL_ID_FETCHFREEBUSYBLOCKS:
-		return rpc_ext_pull_fetchfreebusyblocks_response(
-						&pull_ctx, &presponse->payload);
-	case CALL_ID_GETFREEBUSYRANGE:
-		return rpc_ext_pull_getfreebusyrange_response(
-						&pull_ctx, &presponse->payload);
 	case CALL_ID_MESSAGETORFC822:
 		return rpc_ext_pull_messagetorfc822_response(
 						&pull_ctx, &presponse->payload);
@@ -2342,6 +2154,13 @@ zend_bool rpc_ext_pull_response(const BINARY *pbin_in,
 		return rpc_ext_pull_messagetovcf_response(
 					&pull_ctx, &presponse->payload);
 	case CALL_ID_VCFTOMESSAGE:
+		return 1;
+	case CALL_ID_GETUSERAVAILABILITY:
+		return rpc_ext_pull_getuseravailability_reponse(
+						&pull_ctx, &presponse->payload);
+	case CALL_ID_SETPASSWD:
+		return 1;
+	case CALL_ID_LINKMESSAGE:
 		return 1;
 	default:
 		return 0;

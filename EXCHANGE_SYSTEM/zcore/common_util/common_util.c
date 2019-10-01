@@ -48,6 +48,11 @@ typedef struct _ENVIRONMENT_CONTEXT {
 	int clifd;
 } ENVIRONMENT_CONTEXT;
 
+typedef struct _LANGMAP_ITEM {
+	char lang[32];
+	char i18n[32];
+} LANGMAP_ITEM;
+
 static int g_max_rcpt;
 static int g_mime_num;
 static int g_smtp_port;
@@ -59,9 +64,15 @@ static MIME_POOL *g_mime_pool;
 static pthread_key_t g_dir_key;
 static pthread_key_t g_env_key;
 static char g_default_zone[64];
+static char g_langmap_path[256];
+static char g_freebusy_path[256];
+static LIST_FILE *g_langmap_list;
 static char g_default_charset[32];
+static char g_folderlang_path[256];
+static char g_submit_command[1024];
 static unsigned int g_max_mail_len;
 static unsigned int g_max_rule_len;
+static LIST_FILE *g_folderlang_list;
 
 BOOL common_util_verify_columns_and_sorts(
 	const PROPTAG_ARRAY *pcolumns,
@@ -492,6 +503,27 @@ BOOL common_util_essdn_to_uid(const char *pessdn, int *puid)
 	return TRUE;
 }
 
+BOOL common_util_essdn_to_ids(const char *pessdn,
+	int *pdomain_id, int *puser_id)
+{
+	int tmp_len;
+	char tmp_essdn[1024];
+	
+	tmp_len = sprintf(tmp_essdn,
+			"/o=%s/ou=Exchange Administrative Group "
+			"(FYDIBOHF23SPDLT)/cn=Recipients/cn=",
+			g_org_name);
+	if (0 != strncasecmp(pessdn, tmp_essdn, tmp_len)) {
+		return FALSE;
+	}
+	if ('-' != pessdn[tmp_len + 16]) {
+		return FALSE;
+	}
+	*pdomain_id = decode_hex_int(pessdn + tmp_len);
+	*puser_id = decode_hex_int(pessdn + tmp_len + 8);
+	return TRUE;	
+}
+
 BOOL common_util_username_to_essdn(const char *username, char *pessdn)
 {
 	int user_id;
@@ -534,10 +566,63 @@ BOOL common_util_public_to_essdn(const char *username, char *pessdn)
 	return FALSE;
 }
 
+void common_util_exmdb_locinfo_to_string(
+	uint8_t type, int db_id, uint64_t eid,
+	char *loc_string)
+{
+	
+	sprintf(loc_string, "%d:%d:%llx", (int)type,
+			db_id, rop_util_get_gc_value(eid));
+}
+
+BOOL common_util_exmdb_locinfo_from_string(
+	const char *loc_string, uint8_t *ptype,
+	int *pdb_id, uint64_t *peid)
+{
+	int tmp_len;
+	char *ptoken;
+	uint64_t tmp_val;
+	char tmp_buff[16];
+	
+	if (0 == strncmp(loc_string, "1:", 2)) {
+		*ptype = LOC_TYPE_PRIVATE_FOLDER;
+	} else if (0 == strncmp(loc_string, "2:", 2)) {
+		*ptype = LOC_TYPE_PUBLIC_FOLDER;
+	} else if (0 == strncmp(loc_string, "3:", 2)) {
+		*ptype = LOC_TYPE_PRIVATE_MESSAGE;
+	} else if (0 == strncmp(loc_string, "4:", 2)) {
+		*ptype = LOC_TYPE_PUBLIC_MESSAGE;
+	} else {
+		return FALSE;
+	}
+	ptoken = strchr(loc_string + 2, ':');
+	if (NULL == ptoken) {
+		return FALSE;
+	}
+	tmp_len = ptoken - (loc_string + 2);
+	if (tmp_len > 12) {
+		return FALSE;
+	}
+	memcpy(tmp_buff, loc_string + 2, tmp_len);
+	tmp_buff[tmp_len] = '\0';
+	*pdb_id = atoi(tmp_buff);
+	if (0 == *pdb_id) {
+		return FALSE;
+	}
+	tmp_val = strtoll(ptoken + 1, NULL, 16);
+	if (0 == tmp_val) {
+		return FALSE;
+	}
+	*peid = rop_util_make_eid_ex(1, tmp_val);
+	return TRUE;
+}
+
 void common_util_init(const char *org_name, const char *hostname,
 	const char *default_charset, const char *default_zone, int mime_num,
 	int max_rcpt, int max_message, unsigned int max_mail_len,
-	unsigned int max_rule_len, const char *smtp_ip, int smtp_port)
+	unsigned int max_rule_len, const char *smtp_ip, int smtp_port,
+	const char *freebusy_path, const char *langmap_path,
+	const char *folderlang_path, const char *submit_command)
 {
 	strcpy(g_org_name, org_name);
 	strcpy(g_hostname, hostname);
@@ -550,6 +635,10 @@ void common_util_init(const char *org_name, const char *hostname,
 	g_max_rule_len = max_rule_len;
 	strcpy(g_smtp_ip, smtp_ip);
 	g_smtp_port = smtp_port;
+	strcpy(g_freebusy_path, freebusy_path);
+	strcpy(g_langmap_path, langmap_path);
+	strcpy(g_folderlang_path, folderlang_path);
+	strcpy(g_submit_command, submit_command);
 	pthread_key_create(&g_dir_key, NULL);
 	pthread_key_create(&g_env_key, NULL);
 }
@@ -573,11 +662,34 @@ int common_util_run()
 		printf("[common_util]: fail to init oxcmail library\n");
 		return -2;
 	}
+	g_langmap_list = list_file_init(g_langmap_path, "%s:32%s:32");
+	if (NULL == g_langmap_list ||
+		0 == list_file_get_item_num(g_langmap_list)) {
+		printf("[common_util]: fail to init langmap %s\n", g_langmap_path);
+		return -3;
+	}
+	
+	g_folderlang_list = list_file_init(g_folderlang_path,
+		"%s:64%s:64%s:64%s:64%s:64%s:64%s:64%s:64%s"
+		":64%s:64%s:64%s:64%s:64%s:64%s:64%s:64%s:64");
+	if (NULL == g_folderlang_list) {
+		printf("[common_util]: fail to init "
+			"folderlang %s\n", g_folderlang_path);
+		return -4;
+	}
 	return 0;
 }
 
 int common_util_stop()
 {
+	if (NULL != g_langmap_list) {
+		list_file_free(g_langmap_list);
+		g_langmap_list = NULL;
+	}
+	if (NULL != g_folderlang_list) {
+		list_file_free(g_folderlang_list);
+		g_folderlang_list = NULL;
+	}
 	return 0;
 }
 
@@ -623,6 +735,11 @@ void common_util_set_param(int param, unsigned int value)
 const char* common_util_get_hostname()
 {
 	return g_hostname;
+}
+
+const char* common_util_get_freebusy_path()
+{
+	return g_freebusy_path;
 }
 
 BOOL common_util_build_environment()
@@ -1164,7 +1281,31 @@ BINARY* common_util_username_to_addressbook_entryid(
 	return pbin;
 }
 
-static BOOL common_util_username_to_entryid(const char *username,
+BOOL common_util_essdn_to_entryid(const char *essdn, BINARY *pbin)
+{
+	EXT_PUSH ext_push;
+	ADDRESSBOOK_ENTRYID tmp_entryid;
+	
+	pbin->pb = common_util_alloc(1280);
+	if (NULL == pbin->pb) {
+		return FALSE;
+	}
+	tmp_entryid.flags = 0;
+	rop_util_get_provider_uid(PROVIDER_UID_ADDRESS_BOOK,
+							tmp_entryid.provider_uid);
+	tmp_entryid.version = 1;
+	tmp_entryid.type = ADDRESSBOOK_ENTRYID_TYPE_LOCAL_USER;
+	tmp_entryid.px500dn = (void*)essdn;
+	ext_buffer_push_init(&ext_push, pbin->pb, 1280, EXT_FLAG_UTF16);
+	if (EXT_ERR_SUCCESS != ext_buffer_push_addressbook_entryid(
+		&ext_push, &tmp_entryid)) {
+		return FALSE;
+	}
+	pbin->cb = ext_push.offset;
+	return TRUE;
+}
+
+BOOL common_util_username_to_entryid(const char *username,
 	const char *pdisplay_name, BINARY *pbin, int *paddress_type)
 {
 	int status;
@@ -1178,43 +1319,32 @@ static BOOL common_util_username_to_entryid(const char *username,
 	char hex_string[16];
 	char hex_string2[16];
 	ONEOFF_ENTRYID oneoff_entry;
-	ADDRESSBOOK_ENTRYID tmp_entryid;
 	
-	strncpy(tmp_name, username, 256);
-	pdomain = strchr(tmp_name, '@');
-	if (NULL == pdomain) {
-		return FALSE;
-	}
-	*pdomain = '\0';
-	pdomain ++;
-	pbin->pb = common_util_alloc(1280);
-	if (NULL == pbin->pb) {
-		return FALSE;
-	}
 	if (TRUE == system_services_get_user_ids(username,
 		&user_id, &domain_id, &address_type)) {
-		encode_hex_int(user_id, hex_string);
-		encode_hex_int(domain_id, hex_string2);
-		snprintf(x500dn, 1024, "/o=%s/ou=Exchange Administrative Group "
-				"(FYDIBOHF23SPDLT)/cn=Recipients/cn=%s%s-%s",
-				g_org_name, hex_string2, hex_string, tmp_name);
-		upper_string(x500dn);
-		tmp_entryid.flags = 0;
-		rop_util_get_provider_uid(PROVIDER_UID_ADDRESS_BOOK,
-								tmp_entryid.provider_uid);
-		tmp_entryid.version = 1;
-		tmp_entryid.type = ADDRESSBOOK_ENTRYID_TYPE_LOCAL_USER;
-		tmp_entryid.px500dn = x500dn;
-		ext_buffer_push_init(&ext_push, pbin->pb, 1280, EXT_FLAG_UTF16);
-		if (EXT_ERR_SUCCESS != ext_buffer_push_addressbook_entryid(
-			&ext_push, &tmp_entryid)) {
+		strncpy(tmp_name, username, 256);
+		pdomain = strchr(tmp_name, '@');
+		if (NULL == pdomain) {
 			return FALSE;
 		}
-		pbin->cb = ext_push.offset;
+		*pdomain = '\0';
+		encode_hex_int(user_id, hex_string);
+		encode_hex_int(domain_id, hex_string2);
+		snprintf(x500dn, 1024, "/o=%s/ou=Exchange Administrative "
+				"Group (FYDIBOHF23SPDLT)/cn=Recipients/cn=%s%s-%s",
+				g_org_name, hex_string2, hex_string, tmp_name);
+		upper_string(x500dn);
+		if (FALSE == common_util_essdn_to_entryid(x500dn, pbin)) {
+			return FALSE;
+		}
 		if (NULL != paddress_type) {
 			*paddress_type = address_type;
 		}
 		return TRUE;
+	}
+	pbin->pb = common_util_alloc(1280);
+	if (NULL == pbin->pb) {
+		return FALSE;
 	}
 	oneoff_entry.flags = 0;
 	rop_util_get_provider_uid(PROVIDER_UID_ONE_OFF,
@@ -2270,7 +2400,7 @@ BOOL common_util_send_message(STORE_OBJECT *pstore,
 		*/
 		pnode->pdata = common_util_get_propvals(
 			prcpts->pparray[i], PROP_TAG_SMTPADDRESS);
-		if (NULL != pnode->pdata) {
+		if (NULL != pnode->pdata && '\0' != ((char*)pnode->pdata)[0]) {
 			double_list_append_as_tail(&temp_list, pnode);
 			continue;
 		}
@@ -2505,7 +2635,7 @@ static REPLY_ACTION* common_util_convert_from_zreply(ZREPLY_ACTION *preply)
 
 BOOL common_util_convert_from_zrule(TPROPVAL_ARRAY *ppropvals)
 {
-	int i;
+	int i, j;
 	RULE_ACTIONS *pactions;
 	
 	pactions = common_util_get_propvals(
@@ -3078,9 +3208,18 @@ uint8_t* common_util_get_muidecsab()
 	return MUIDECSAB;
 }
 
+uint8_t* common_util_get_muidzcsab()
+{
+	static uint8_t MUIDZCSAB[] = {
+		0x72, 0x7F, 0x04, 0x30, 0xE3, 0x92, 0x4F, 0xDA,
+		0xB8, 0x6A, 0xE5, 0x2A, 0x7F, 0xE4, 0x65, 0x71};
+	return MUIDZCSAB;
+}
+
 BOOL common_util_message_to_rfc822(STORE_OBJECT *pstore,
 	uint64_t message_id, BINARY *peml_bin)
 {
+	int fd;
 	int size;
 	void *ptr;
 	MAIL imail;
@@ -3090,10 +3229,19 @@ BOOL common_util_message_to_rfc822(STORE_OBJECT *pstore,
 	size_t mail_len;
 	USER_INFO *pinfo;
 	STREAM tmp_stream;
+	char tmp_path[256];
 	LIB_BUFFER *pallocator;
 	TAGGED_PROPVAL *ppropval;
 	MESSAGE_CONTENT *pmsgctnt;
 	
+	if (TRUE == exmdb_client_get_message_property(
+		store_object_get_dir(pstore), NULL, 0,
+		message_id, PROP_TAG_MIDSTRING, &pvalue)
+		&& NULL != pvalue) {
+		sprintf(tmp_path, "%s/eml/%s",
+			store_object_get_dir(pstore), pvalue);
+		return common_util_load_file(tmp_path, peml_bin);
+	}
 	pinfo = zarafa_server_get_info();
 	if (NULL == pinfo) {
 		cpid = 1252;
@@ -3395,4 +3543,81 @@ BOOL common_util_nttime_to_tm(uint64_t nt_time, struct tm *ptm)
 	tz_localtime_r(sp, &unix_time, ptm);
 	tz_free(sp);
 	return TRUE;
+}
+
+const char* common_util_lang_to_i18n(const char *lang)
+{
+	int i, num;
+	LANGMAP_ITEM *pitem;
+	
+	pitem = list_file_get_list(g_langmap_list);
+	num = list_file_get_item_num(g_langmap_list);
+	for (i=0; i<num; i++) {
+		if (0 == strcasecmp(pitem[i].lang, lang)) {
+			return pitem[i].i18n;
+		}
+	}
+	return pitem[0].i18n;
+}
+
+const char* common_util_i18n_to_lang(const char *i18n)
+{
+	int i, num;
+	LANGMAP_ITEM *pitem;
+	
+	pitem = list_file_get_list(g_langmap_list);
+	num = list_file_get_item_num(g_langmap_list);
+	for (i=0; i<num; i++) {
+		if (0 == strcasecmp(pitem[i].i18n, i18n)) {
+			return pitem[i].lang;
+		}
+	}
+	return pitem[0].lang;
+}
+
+const char* common_util_get_default_timezone()
+{
+	return g_default_zone;
+}
+
+const char* common_util_get_submit_command()
+{
+	return g_submit_command;
+}
+
+void common_util_get_folder_lang(const char *lang, char **ppfolder_lang)
+{
+	int i, j;
+	char *pline;
+	int line_num;
+	
+	line_num = list_file_get_item_num(g_folderlang_list);
+	pline = list_file_get_list(g_folderlang_list);
+	for (i=0; i<line_num; i++) {
+		if (0 != strcasecmp(pline + 1088*i, lang)) {
+			continue;
+		}
+		for (j=0; j<RES_TOTAL_NUM; j++) {
+			ppfolder_lang[j] = pline + 1088*i + 64*(j + 1);
+		}
+		break;
+	}
+	if (i >= line_num) {
+		ppfolder_lang[RES_ID_IPM] = "Top of Information Store";
+		ppfolder_lang[RES_ID_INBOX]  = "Inbox";
+		ppfolder_lang[RES_ID_DRAFT] = "Drafts";
+		ppfolder_lang[RES_ID_OUTBOX] = "Outbox";
+		ppfolder_lang[RES_ID_SENT] = "Sent Items";
+		ppfolder_lang[RES_ID_DELETED] = "Deleted Items";
+		ppfolder_lang[RES_ID_CONTACTS] = "Contacts";
+		ppfolder_lang[RES_ID_CALENDAR] = "Calendar";
+		ppfolder_lang[RES_ID_JOURNAL] = "Journal";
+		ppfolder_lang[RES_ID_NOTES] = "Notes";
+		ppfolder_lang[RES_ID_TASKS] = "Tasks";
+		ppfolder_lang[RES_ID_JUNK] = "Junk E-mail";
+		ppfolder_lang[RES_ID_SYNC] = "Sync Issues";
+		ppfolder_lang[RES_ID_CONFLICT] = "Conflicts";
+		ppfolder_lang[RES_ID_LOCAL] = "Local Failures";
+		ppfolder_lang[RES_ID_SERVER] = "Server Failures";
+	}
 }

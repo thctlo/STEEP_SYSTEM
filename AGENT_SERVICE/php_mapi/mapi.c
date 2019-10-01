@@ -84,7 +84,7 @@ static zend_function_entry mapi_functions[] = {
 	ZEND_FE(mapi_createoneoff, NULL)
 	ZEND_FE(mapi_parseoneoff, NULL)
 	ZEND_FE(mapi_logon_zarafa, NULL)
-	ZEND_FE(mapi_zarafa_getuser_by_name, NULL)
+	ZEND_FE(mapi_logon_ex, NULL)
 	ZEND_FE(mapi_getmsgstorestable, NULL)
 	ZEND_FE(mapi_openmsgstore, NULL)
 	ZEND_FE(mapi_openprofilesection, NULL)
@@ -120,6 +120,7 @@ static zend_function_entry mapi_functions[] = {
 
 	ZEND_FE(mapi_folder_gethierarchytable, NULL)
 	ZEND_FE(mapi_folder_getcontentstable, NULL)
+	ZEND_FE(mapi_folder_getrulestable, NULL)
 	ZEND_FE(mapi_folder_createmessage, NULL)
 	ZEND_FE(mapi_folder_createfolder, NULL)
 	ZEND_FE(mapi_folder_deletemessages, NULL)
@@ -128,9 +129,9 @@ static zend_function_entry mapi_functions[] = {
 	ZEND_FE(mapi_folder_copyfolder, NULL)
 	ZEND_FE(mapi_folder_deletefolder, NULL)
 	ZEND_FE(mapi_folder_setreadflags, NULL)
-	ZEND_FE(mapi_folder_openmodifytable, NULL)
 	ZEND_FE(mapi_folder_setsearchcriteria, NULL)
 	ZEND_FE(mapi_folder_getsearchcriteria, NULL)
+	ZEND_FE(mapi_folder_modifyrules, NULL)
 
 	ZEND_FE(mapi_message_getattachmenttable, NULL)
 	ZEND_FE(mapi_message_getrecipienttable, NULL)
@@ -160,27 +161,11 @@ static zend_function_entry mapi_functions[] = {
 	ZEND_FE(mapi_getnamesfromids, NULL)
 	ZEND_FE(mapi_getidsfromnames, NULL)
 	ZEND_FE(mapi_decompressrtf, NULL)
-	ZEND_FE(mapi_rules_gettable, NULL)
-	ZEND_FE(mapi_rules_modifytable, NULL)
 	
 	ZEND_FE(mapi_zarafa_getpermissionrules, NULL)
 	ZEND_FE(mapi_zarafa_setpermissionrules, NULL)
-
-	ZEND_FE(mapi_freebusysupport_open, NULL)
-	ZEND_FE(mapi_freebusysupport_close, NULL)
-	ZEND_FE(mapi_freebusysupport_loaddata, NULL)
-	ZEND_FE(mapi_freebusysupport_loadupdate, NULL)
-	ZEND_FE(mapi_freebusydata_enumblocks, NULL)
-	ZEND_FE(mapi_freebusydata_getpublishrange, NULL)
-	ZEND_FE(mapi_freebusydata_setrange, NULL)
-	ZEND_FE(mapi_freebusyenumblock_reset, NULL)
-	ZEND_FE(mapi_freebusyenumblock_next, NULL)
-	ZEND_FE(mapi_freebusyenumblock_skip, NULL)
-	ZEND_FE(mapi_freebusyenumblock_restrict, NULL)
-	ZEND_FE(mapi_freebusyenumblock_ical, NULL)
-	ZEND_FE(mapi_freebusyupdate_publish, NULL)
-	ZEND_FE(mapi_freebusyupdate_reset, NULL)
-	ZEND_FE(mapi_freebusyupdate_savechanges, NULL)
+	
+	ZEND_FE(mapi_getuseravailability, NULL)
 
 	ZEND_FE(mapi_exportchanges_config, NULL)
 	ZEND_FE(mapi_exportchanges_synchronize, NULL)
@@ -224,6 +209,12 @@ static zend_function_entry mapi_functions[] = {
 
 	ZEND_FE(kc_session_save, second_arg_force_ref)
 	ZEND_FE(kc_session_restore, second_arg_force_ref)
+	
+	ZEND_FE(nsp_getuserinfo, NULL)
+	ZEND_FE(nsp_setuserpasswd, NULL)
+	
+	ZEND_FE(mapi_linkmessage, NULL)
+	
 	{NULL, NULL, NULL}
 };
 
@@ -262,7 +253,6 @@ static char name_mapi_folder[] = "MAPI Folder";
 static char name_mapi_message[] = "MAPI Message";
 static char name_mapi_attachment[] = "MAPI Attachment";
 static char name_mapi_property[] = "MAPI Property";
-static char name_mapi_rules[] = "MAPI Rules Modify Table";
 static char name_stream[] = "IStream Interface";
 static char name_fb_data[] = "Freebusy Data Interface";
 static char name_fb_update[] = "Freebusy Update Interface";
@@ -275,7 +265,6 @@ static const char name_mapi_importcontentschanges[] =
 						"ICS Import Contents Changes";
 
 static int le_stream;
-static int le_mapi_rules;
 static int le_mapi_table;
 static int le_mapi_abcont;
 static int le_mapi_folder;
@@ -286,11 +275,8 @@ static int le_mapi_msgstore;
 static int le_mapi_mailuser;
 static int le_mapi_distlist;
 static int le_mapi_property;
-static int le_freebusy_data;
-static int le_freebusy_update;
 static int le_mapi_advisesink;
 static int le_mapi_attachment;
-static int le_freebusy_enumblock;
 static int le_mapi_exportchanges;
 static int le_mapi_importcontentschanges;
 static int le_mapi_importhierarchychanges;
@@ -660,18 +646,10 @@ PHP_MINIT_FUNCTION(mapi)
 		mapi_resource_dtor, NULL, name_mapi_attachment, module_number);
 	le_mapi_property = zend_register_list_destructors_ex(
 		mapi_resource_dtor, NULL, name_mapi_property, module_number);
-	le_mapi_rules = zend_register_list_destructors_ex(
-		mapi_resource_dtor, NULL, name_mapi_rules, module_number);
 	le_mapi_advisesink = zend_register_list_destructors_ex(
 		notif_sink_dtor, NULL, name_mapi_advisesink, module_number);
 	le_stream = zend_register_list_destructors_ex(
 		stream_object_dtor, NULL, name_stream, module_number);
-	le_freebusy_data = zend_register_list_destructors_ex(
-		mapi_resource_dtor, NULL, name_fb_data, module_number);
-	le_freebusy_update = zend_register_list_destructors_ex(
-		mapi_resource_dtor, NULL, name_fb_update, module_number);
-	le_freebusy_enumblock = zend_register_list_destructors_ex(
-		mapi_resource_dtor, NULL, name_fb_enumblock, module_number);
 	le_mapi_exportchanges = zend_register_list_destructors_ex(
 		ics_export_ctx_dtor, NULL, name_mapi_exportchanges,
 		module_number);
@@ -835,8 +813,7 @@ ZEND_FUNCTION(mapi_createoneoff)
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
 		"sss|l", &pdisplayname, &name_len, &ptype, &type_len,
 		&paddress, &address_len, &flags) == FAILURE ||
-		NULL == ptype || '\0' == ptype[0] || NULL == paddress
-		|| '\0' == paddress[0]) {
+		NULL == ptype || '\0' == ptype[0] || NULL == paddress) {
 		MAPI_G(hr) = EC_INVALID_PARAMETER;
 		goto THROW_EXCEPTION;
 	}
@@ -947,6 +924,52 @@ ZEND_FUNCTION(mapi_logon_zarafa)
 		Z_STRLEN_PP(ppzusername) > 0) {
 		password = NULL;	
 	}
+	result = zarafa_client_logon(username, password, 0, &presource->hsession);
+	if (EC_SUCCESS != result) {
+		MAPI_G(hr) = result;
+		goto THROW_EXCEPTION;
+	}
+	presource->type = MAPI_SESSION;
+	presource->hobject = 0;
+	ZEND_REGISTER_RESOURCE(return_value, presource, le_mapi_session);
+	MAPI_G(hr) = EC_SUCCESS;
+	return;
+THROW_EXCEPTION:
+	if (MAPI_G(exceptions_enabled)) {
+		zend_throw_exception(MAPI_G(exception_ce),
+			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
+	}
+	RETVAL_FALSE;
+}
+
+ZEND_FUNCTION(mapi_logon_ex)
+{
+	long flags;
+	char *username;
+	char *password;
+	uint32_t result;
+	int username_len;
+	int password_len;
+	zval **ppzusername;
+	zval **ppzserver_vars;
+	MAPI_RESOURCE *presource;
+	
+	flags = 0;
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "ssl",
+		&username, &username_len, &password, &password_len, &flags)
+		== FAILURE || NULL == username || '\0' == username[0] ||
+		NULL == password) {
+		MAPI_G(hr) = EC_INVALID_PARAMETER;
+		goto THROW_EXCEPTION;
+	}
+	if ('\0' == password[0]) {
+		password = NULL;
+	}
+	presource = emalloc(sizeof(MAPI_RESOURCE));
+	if (NULL == presource) {
+		MAPI_G(hr) = EC_OUT_OF_MEMORY;
+		goto THROW_EXCEPTION;
+	}
 	result = zarafa_client_logon(username,
 		password, flags, &presource->hsession);
 	if (EC_SUCCESS != result) {
@@ -965,52 +988,6 @@ THROW_EXCEPTION:
 	}
 	RETVAL_FALSE;
 }
-
-ZEND_FUNCTION(mapi_zarafa_getuser_by_name)
-{
-	char *px500dn;
-	BINARY entryid;
-	char *username;
-	uint32_t result;
-	int username_len;
-	zval *pzresource;
-	char *pdisplay_name;
-	
-	if (1 == ZEND_NUM_ARGS()) {
-		if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
-			"s", &username, &username_len) == FAILURE) {
-			MAPI_G(hr) = EC_INVALID_PARAMETER;
-			goto THROW_EXCEPTION;	
-		}
-	} else {
-		if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rs",
-			&pzresource, &username, &username_len) == FAILURE) {
-			MAPI_G(hr) = EC_INVALID_PARAMETER;
-			goto THROW_EXCEPTION;	
-		}
-	}
-	result = zarafa_client_uinfo(username,
-		&entryid, &pdisplay_name, &px500dn);
-	if (EC_SUCCESS != result) {
-		MAPI_G(hr) = result;
-		goto THROW_EXCEPTION;
-	}
-	array_init(return_value);
-	add_assoc_stringl(return_value, "userid", entryid.pb, entryid.cb, 1);
-	add_assoc_string(return_value, "username", username, 1);
-	add_assoc_string(return_value, "fullname", pdisplay_name, 1);
-	add_assoc_string(return_value, "emailaddress", px500dn, 1);
-	add_assoc_long(return_value, "admin", 0);
-	MAPI_G(hr) = EC_SUCCESS;
-	return;
-THROW_EXCEPTION:
-	if (MAPI_G(exceptions_enabled)) {
-		zend_throw_exception(MAPI_G(exception_ce),
-			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
-	}
-	RETVAL_FALSE;
-}
-
 
 ZEND_FUNCTION(mapi_openentry)
 {
@@ -1208,13 +1185,6 @@ ZEND_FUNCTION(mapi_ab_resolvename)
 		&result_set);
 	if (EC_SUCCESS != result) {
 		MAPI_G(hr) = result;
-		goto THROW_EXCEPTION;
-	}
-	if (result_set.count < cond_set.count) {
-		MAPI_G(hr) = EC_NOT_FOUND;
-		goto THROW_EXCEPTION;
-	} else if (result_set.count > cond_set.count) {
-		MAPI_G(hr) = EC_AMBIGUOUS_RECIP;
 		goto THROW_EXCEPTION;
 	}
 	if (!tarray_set_to_php(&result_set, &pzrowset TSRMLS_CC)) {
@@ -2264,7 +2234,7 @@ ZEND_FUNCTION(mapi_table_queryallrows)
 		pproptags = NULL;
 	}
 	result = zarafa_client_queryrows(ptable->hsession,
-		ptable->hobject, 0, 0xFFFFFFFF, prestriction,
+		ptable->hobject, 0, 0x7FFFFFFF, prestriction,
 		pproptags, &rowset);
 	if (EC_SUCCESS != result) {
 		MAPI_G(hr) = result;
@@ -4248,6 +4218,7 @@ THROW_EXCEPTION:
 ZEND_FUNCTION(mapi_decompressrtf)
 {
 	pid_t pid;
+	int status;
 	int offset;
 	int rtflen;
 	int bufflen;
@@ -4325,8 +4296,9 @@ ZEND_FUNCTION(mapi_decompressrtf)
 			}
 		}
 	}
+	waitpid(pid, &status, 0);
 	close(pipes_out[0]);
-	RETVAL_STRINGL(pbuff, bufflen, 0);
+	RETVAL_STRINGL(pbuff, offset, 0);
 	MAPI_G(hr) = EC_SUCCESS;
 	return;
 THROW_EXCEPTION:
@@ -4337,7 +4309,7 @@ THROW_EXCEPTION:
 	RETVAL_FALSE;
 }
 
-ZEND_FUNCTION(mapi_folder_openmodifytable)
+ZEND_FUNCTION(mapi_folder_getrulestable)
 {
 	uint32_t result;
 	uint32_t hobject;
@@ -4356,10 +4328,9 @@ ZEND_FUNCTION(mapi_folder_openmodifytable)
 		MAPI_G(hr) = EC_INVALID_OBJECT;
 		goto THROW_EXCEPTION;
 	}
-	result = zarafa_client_openrules(
-					pfolder->hsession,
-					pfolder->hobject,
-					&hobject);
+	result = zarafa_client_loadruletable(
+		pfolder->hsession, pfolder->hobject,
+		&hobject);
 	if (EC_SUCCESS != result) {
 		MAPI_G(hr) = result;
 		goto THROW_EXCEPTION;
@@ -4369,11 +4340,11 @@ ZEND_FUNCTION(mapi_folder_openmodifytable)
 		MAPI_G(hr) = EC_OUT_OF_MEMORY;
 		goto THROW_EXCEPTION;
 	}
-	presource->type = MAPI_RULES;
+	presource->type = MAPI_TABLE;
 	presource->hsession = pfolder->hsession;
 	presource->hobject = hobject;
 	ZEND_REGISTER_RESOURCE(return_value,
-				presource, le_mapi_rules);
+				presource, le_mapi_table);
 	MAPI_G(hr) = EC_SUCCESS;
 	return;
 THROW_EXCEPTION:
@@ -4504,59 +4475,14 @@ THROW_EXCEPTION:
 	RETVAL_FALSE;
 }
 
-ZEND_FUNCTION(mapi_rules_gettable)
-{
-	uint32_t result;
-	uint32_t hobject;
-	zval *pzresource;
-	MAPI_RESOURCE *prules;
-	MAPI_RESOURCE *presource;
-
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
-		"r", &pzresource) == FAILURE || NULL == pzresource) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ZEND_FETCH_RESOURCE(prules, MAPI_RESOURCE*,
-		&pzresource, -1, name_mapi_rules, le_mapi_rules);
-	if (MAPI_RULES != prules->type) {
-		MAPI_G(hr) = EC_INVALID_OBJECT;
-		goto THROW_EXCEPTION;
-	}
-	result = zarafa_client_loadruletable(
-		prules->hsession, prules->hobject,
-		&hobject);
-	if (EC_SUCCESS != result) {
-		MAPI_G(hr) = result;
-		goto THROW_EXCEPTION;	
-	}
-	presource = emalloc(sizeof(MAPI_RESOURCE));
-	if (NULL == presource) {
-		MAPI_G(hr) = EC_OUT_OF_MEMORY;
-		goto THROW_EXCEPTION;
-	}
-	presource->type = MAPI_TABLE;
-	presource->hsession = prules->hsession;
-	presource->hobject = hobject;
-	ZEND_REGISTER_RESOURCE(return_value, presource, le_mapi_table);
-	MAPI_G(hr) = EC_SUCCESS;
-	return;
-THROW_EXCEPTION:
-	if (MAPI_G(exceptions_enabled)) {
-		zend_throw_exception(MAPI_G(exception_ce),
-			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
-	}
-	RETVAL_FALSE;
-}
-
-ZEND_FUNCTION(mapi_rules_modifytable)
+ZEND_FUNCTION(mapi_folder_modifyrules)
 {
 	long flags;
 	zval *pzrows;
 	uint32_t result;
 	zval *pzresource;
 	RULE_LIST rule_list;
-	MAPI_RESOURCE *prules;
+	MAPI_RESOURCE *pfolder;
 	
 	flags = 0;
 	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
@@ -4565,9 +4491,9 @@ ZEND_FUNCTION(mapi_rules_modifytable)
 		MAPI_G(hr) = EC_INVALID_PARAMETER;
 		goto THROW_EXCEPTION;
 	}
-	ZEND_FETCH_RESOURCE(prules, MAPI_RESOURCE*,
-		&pzresource, -1, name_mapi_rules, le_mapi_rules);
-	if (MAPI_RULES != prules->type) {
+	ZEND_FETCH_RESOURCE(pfolder, MAPI_RESOURCE*,
+		&pzresource, -1, name_mapi_folder, le_mapi_folder);
+	if (MAPI_FOLDER != pfolder->type) {
 		MAPI_G(hr) = EC_INVALID_OBJECT;
 		goto THROW_EXCEPTION;
 	}
@@ -4575,8 +4501,8 @@ ZEND_FUNCTION(mapi_rules_modifytable)
 		MAPI_G(hr) = EC_ERROR;
 		goto THROW_EXCEPTION;
 	}
-	result = zarafa_client_modifyrules(prules->hsession,
-					prules->hobject, flags, &rule_list);
+	result = zarafa_client_modifyrules(pfolder->hsession,
+					pfolder->hobject, flags, &rule_list);
 	if (EC_SUCCESS != result) {
 		MAPI_G(hr) = result;
 		goto THROW_EXCEPTION;
@@ -4762,15 +4688,35 @@ THROW_EXCEPTION:
 	RETVAL_FALSE;
 }
 
-ZEND_FUNCTION(mapi_freebusysupport_open)
-{
-	zval *pzstore;
-	zval *pzresource;
-	MAPI_RESOURCE *psession;
-	MAPI_RESOURCE *presource;
+/*
+	This function will get user's freebusy data
 	
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r|r",
-		&pzresource, &pzstore) == FAILURE || NULL == pzresource) {
+	param session[in]	session object
+	param entryid[in]	user's entryid
+	param starttime		unix time stamp
+	param endtime 		unix time stamp
+	return				json string of user's freebusy data,
+						json string, empty string means not
+						found. fileds:
+						starttime, endtime, busytype, subject(base64),
+						location(base64), rests are all bool(absense
+						means false). ismeeting, isrecurring,
+						isexception, isreminderset, isprivate
+*/
+ZEND_FUNCTION(mapi_getuseravailability)
+{
+	long endtime;
+	long starttime;
+	BINARY entryid;
+	uint32_t result;
+	zval *pzresource;
+	char *presult_string;
+	MAPI_RESOURCE *psession;
+	
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rsll",
+		&pzresource, &entryid.pb, &entryid.cb, &starttime, &endtime)
+		== FAILURE || NULL == pzresource || NULL == entryid.pb ||
+		0 == entryid.cb) {
 		MAPI_G(hr) = EC_INVALID_PARAMETER;
 		goto THROW_EXCEPTION;
 	}
@@ -4780,101 +4726,18 @@ ZEND_FUNCTION(mapi_freebusysupport_open)
 		MAPI_G(hr) = EC_INVALID_OBJECT;
 		goto THROW_EXCEPTION;
 	}
-	presource = emalloc(sizeof(MAPI_RESOURCE));
-	if (NULL == presource) {
-		MAPI_G(hr) = EC_OUT_OF_MEMORY;
-		goto THROW_EXCEPTION;
-	}
-	presource->type = MAPI_SESSION;
-	presource->hsession = psession->hsession;
-	presource->hobject = 0;
-	ZEND_REGISTER_RESOURCE(return_value, presource, le_mapi_session);
-	MAPI_G(hr) = EC_SUCCESS;
-	return;
-THROW_EXCEPTION:
-	if (MAPI_G(exceptions_enabled)) {
-		zend_throw_exception(MAPI_G(exception_ce),
-			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
-	}
-	RETVAL_FALSE;
-}
-
-ZEND_FUNCTION(mapi_freebusysupport_close)
-{
-	RETVAL_TRUE;
-}
-
-ZEND_FUNCTION(mapi_freebusysupport_loaddata)
-{
-	int	i, rid;
-	zval **ppentry;
-	uint32_t result;
-	zval *pzresusers;
-	zval *pzressession;
-	HashTable *ptarget_hash;
-	MAPI_RESOURCE *psession;
-	MAPI_RESOURCE *presource;
-	LONG_ARRAY hobject_array;
-	BINARY_ARRAY user_entryids;
-	
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
-		"ra", &pzressession, &pzresusers) == FAILURE ||
-		NULL == pzressession || NULL == pzresusers) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ZEND_FETCH_RESOURCE(psession, MAPI_RESOURCE*,
-		&pzressession, -1, name_mapi_session, le_mapi_session);
-	if (MAPI_SESSION != psession->type) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ptarget_hash = HASH_OF(pzresusers);
-	if (NULL == ptarget_hash) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	user_entryids.count = zend_hash_num_elements(ptarget_hash);
-	user_entryids.pbin = emalloc(sizeof(BINARY)*user_entryids.count);
-	if (NULL == user_entryids.pbin) {
-		MAPI_G(hr) = EC_OUT_OF_MEMORY;
-		goto THROW_EXCEPTION;
-	}
-	zend_hash_internal_pointer_reset(ptarget_hash);
-	for (i=0; i<user_entryids.count; i++) {
-		if (zend_hash_get_current_data(ptarget_hash,
-			(void**)&ppentry) == FAILURE) {
-			MAPI_G(hr) = EC_INVALID_PARAMETER;
-			goto THROW_EXCEPTION;
-		}
-		user_entryids.pbin[i].cb = Z_STRLEN_PP(ppentry);
-		user_entryids.pbin[i].pb = Z_STRVAL_PP(ppentry);
-		zend_hash_move_forward(ptarget_hash);
-	}
-	result = zarafa_client_openfreebusydata(psession->hsession,
-			psession->hobject, &user_entryids, &hobject_array);
+	result = zarafa_client_getuseravailability(
+		psession->hsession, entryid, starttime,
+		endtime, &presult_string);
 	if (EC_SUCCESS != result) {
 		MAPI_G(hr) = result;
 		goto THROW_EXCEPTION;
 	}
-	array_init(return_value);
-	for (i=0; i<hobject_array.count; i++) {
-		if (0 == hobject_array.pl[i]) {
-			add_next_index_null(return_value);
-		} else {
-			presource = emalloc(sizeof(MAPI_RESOURCE));
-			if (NULL == presource) {
-				MAPI_G(hr) = EC_OUT_OF_MEMORY;
-				goto THROW_EXCEPTION;
-			}
-			presource->type = MAPI_FBDATA;
-			presource->hsession = psession->hsession;
-			presource->hobject = hobject_array.pl[i];
-			rid = ZEND_REGISTER_RESOURCE(NULL,
-				presource, le_freebusy_data);
-			add_next_index_resource(return_value, rid);
-		}
+	if (NULL == presult_string) {
+		RETVAL_NULL();
+		return;
 	}
+	RETVAL_STRING(presult_string, 1);
 	MAPI_G(hr) = EC_SUCCESS;
 	return;
 THROW_EXCEPTION:
@@ -4883,394 +4746,6 @@ THROW_EXCEPTION:
 			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
 	}
 	RETVAL_FALSE;
-}
-
-ZEND_FUNCTION(mapi_freebusysupport_loadupdate)
-{
-	int i;
-	int	rid;
-	int user_count;
-	uint32_t result;
-	zval *pzresusers;
-	zval *pzressession;
-	MAPI_RESOURCE *psession;
-	HashTable *ptarget_hash;
-	MAPI_RESOURCE *presource;
-	
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
-		"ra", &pzressession, &pzresusers) == FAILURE ||
-		NULL == pzressession || NULL == pzresusers) {	
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ZEND_FETCH_RESOURCE(psession, MAPI_RESOURCE*,
-		&pzressession, -1, name_mapi_session, le_mapi_session);
-	if (MAPI_SESSION != psession->type) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ptarget_hash = HASH_OF(pzresusers);
-	if (NULL == ptarget_hash) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	array_init(return_value);
-	user_count = zend_hash_num_elements(ptarget_hash);
-	for (i=0; i<user_count; i++) {
-		presource = emalloc(sizeof(MAPI_RESOURCE));
-		if (NULL == presource) {
-			MAPI_G(hr) = EC_OUT_OF_MEMORY;
-			goto THROW_EXCEPTION;
-		}
-		presource->type = MAPI_FBUPDATE;
-		presource->hsession = psession->hsession;
-		presource->hobject = 0;
-		rid = ZEND_REGISTER_RESOURCE(NULL,
-			presource, le_freebusy_update);
-		add_next_index_resource(return_value, rid);
-	}
-	MAPI_G(hr) = EC_SUCCESS;
-	return;
-THROW_EXCEPTION:
-	if (MAPI_G(exceptions_enabled)) {
-		zend_throw_exception(MAPI_G(exception_ce),
-			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
-	}
-	RETVAL_FALSE;
-}
-
-ZEND_FUNCTION(mapi_freebusydata_enumblocks)
-{
-	time_t unixend;
-	uint32_t result;
-	time_t unixstart;
-	uint32_t hobject;
-	zval *pzresfbdata;
-	uint64_t nttime_end;
-	uint64_t nttime_start;
-	MAPI_RESOURCE *pfbdata;
-	MAPI_RESOURCE *presource;
-	
-	unixstart = 0;
-	unixend = -1;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
-		"rll", &pzresfbdata, &unixstart, &unixend) ==
-		FAILURE || NULL == pzresfbdata) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ZEND_FETCH_RESOURCE(pfbdata, MAPI_RESOURCE*,
-		&pzresfbdata, -1, name_fb_data, le_freebusy_data);
-	if (MAPI_FBDATA != pfbdata->type) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	nttime_start = unix_to_nttime(unixstart);
-	nttime_end = unix_to_nttime(unixend);
-	result = zarafa_client_enumfreebusyblocks(pfbdata->hsession,
-			pfbdata->hobject, nttime_start, nttime_end, &hobject);
-	if (EC_SUCCESS != result) {
-		MAPI_G(hr) = result;
-		goto THROW_EXCEPTION;	
-	}
-	presource = emalloc(sizeof(MAPI_RESOURCE));
-	if (NULL == presource) {
-		MAPI_G(hr) = EC_OUT_OF_MEMORY;
-		goto THROW_EXCEPTION;
-	}
-	presource->type = MAPI_FBENUMBLOCK;
-	presource->hsession = pfbdata->hsession;
-	presource->hobject = 0;
-	ZEND_REGISTER_RESOURCE(return_value,
-		presource, le_freebusy_enumblock);
-	MAPI_G(hr) = EC_SUCCESS;
-	return;
-THROW_EXCEPTION:
-	if (MAPI_G(exceptions_enabled)) {
-		zend_throw_exception(MAPI_G(exception_ce),
-			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
-	}
-	RETVAL_FALSE;
-}
-
-ZEND_FUNCTION(mapi_freebusydata_getpublishrange)
-{
-	uint32_t result;
-	zval *pzresfbdata;
-	uint64_t nttime_end;
-	uint64_t nttime_start;
-	MAPI_RESOURCE *pfbdata;
-
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r",
-		&pzresfbdata) == FAILURE || NULL == pzresfbdata) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ZEND_FETCH_RESOURCE(pfbdata, MAPI_RESOURCE*,
-		&pzresfbdata, -1, name_fb_data, le_freebusy_data);
-	if (MAPI_FBDATA != pfbdata->type) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	result = zarafa_client_getfreebusyrange(pfbdata->hsession,
-				pfbdata->hobject, &nttime_start, &nttime_end);
-	if (EC_SUCCESS != result) {
-		MAPI_G(hr) = result;
-		goto THROW_EXCEPTION;
-	}
-	array_init(return_value);
-	add_assoc_long(return_value, "start", nttime_to_unix(nttime_start));
-	add_assoc_long(return_value, "end", nttime_to_unix(nttime_end));
-	MAPI_G(hr) = EC_SUCCESS;
-	return;
-THROW_EXCEPTION:
-	if (MAPI_G(exceptions_enabled)) {
-		zend_throw_exception(MAPI_G(exception_ce),
-			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
-	}
-	RETVAL_FALSE;
-}
-
-ZEND_FUNCTION(mapi_freebusydata_setrange)
-{
-	RETVAL_TRUE;
-}
-
-ZEND_FUNCTION(mapi_freebusyenumblock_reset)
-{
-	uint32_t result;
-	zval *pzresource;
-	MAPI_RESOURCE *penumblock;
-
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
-		"r", &pzresource) == FAILURE || NULL == pzresource) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ZEND_FETCH_RESOURCE(penumblock, MAPI_RESOURCE*, &pzresource,
-		-1, name_fb_enumblock, le_freebusy_enumblock);
-	if (MAPI_FBENUMBLOCK != penumblock->type) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	result = zarafa_client_fbenumreset(
-		penumblock->hsession, penumblock->hobject);
-	if (EC_SUCCESS != result) {
-		MAPI_G(hr) = result;
-		goto THROW_EXCEPTION;
-	}
-	RETVAL_TRUE;
-	MAPI_G(hr) = EC_SUCCESS;
-	return;
-THROW_EXCEPTION:
-	if (MAPI_G(exceptions_enabled)) {
-		zend_throw_exception(MAPI_G(exception_ce),
-			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
-	}
-	RETVAL_FALSE;
-}
-
-ZEND_FUNCTION(mapi_freebusyenumblock_next)
-{
-	int	i;
-	long celt;
-	zval *pzval;
-	uint32_t result;
-	zval *pzresource;
-	FBBLOCK_ARRAY fb_blocks;
-	MAPI_RESOURCE *penumblock;
-	
-	celt = 0xFFFFFFFF;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rl",
-		&pzresource, &celt) == FAILURE || NULL == pzresource) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ZEND_FETCH_RESOURCE(penumblock, MAPI_RESOURCE*,
-		&pzresource, -1, name_fb_enumblock, le_freebusy_enumblock);
-	if (MAPI_FBENUMBLOCK != penumblock->type) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	result = zarafa_client_fetchfreebusyblocks(
-		penumblock->hsession, penumblock->hobject,
-		celt, &fb_blocks);
-	if (EC_SUCCESS != result) {
-		MAPI_G(hr) = result;
-		goto THROW_EXCEPTION;
-	}
-	array_init(return_value);
-	for (i=0; i<fb_blocks.count; i++) {
-		MAKE_STD_ZVAL(pzval);
-		array_init(pzval);
-		add_assoc_long(pzval, "start", nttime_to_unix(
-			fb_blocks.pblocks[i].nttime_start));
-		add_assoc_long(pzval, "end", nttime_to_unix(
-			fb_blocks.pblocks[i].nttime_end));
-		add_assoc_long(pzval, "status",
-			fb_blocks.pblocks[i].status);
-		add_next_index_zval(return_value, pzval);
-	}
-	MAPI_G(hr) = EC_SUCCESS;
-	return;
-THROW_EXCEPTION:
-	if (MAPI_G(exceptions_enabled)) {
-		zend_throw_exception(MAPI_G(exception_ce),
-			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
-	}
-	RETVAL_FALSE;
-}
-
-ZEND_FUNCTION(mapi_freebusyenumblock_skip)
-{
-	long num;
-	zval *pzval;
-	uint32_t result;
-	zval *pzresource;
-	FBBLOCK_ARRAY fb_blocks;
-	MAPI_RESOURCE *penumblock;
-	
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rl",
-		&pzresource, &num) == FAILURE || NULL == pzresource) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ZEND_FETCH_RESOURCE(penumblock, MAPI_RESOURCE*,
-		&pzresource, -1, name_fb_enumblock, le_freebusy_enumblock);
-	if (MAPI_FBENUMBLOCK != penumblock->type) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	result = zarafa_client_fbenumskip(
-			penumblock->hsession,
-			penumblock->hobject, num);
-	if (EC_SUCCESS != result) {
-		MAPI_G(hr) = result;
-		goto THROW_EXCEPTION;
-	}
-	RETVAL_TRUE;
-	MAPI_G(hr) = EC_SUCCESS;
-	return;
-THROW_EXCEPTION:
-	if (MAPI_G(exceptions_enabled)) {
-		zend_throw_exception(MAPI_G(exception_ce),
-			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
-	}
-	RETVAL_FALSE;
-}
-
-ZEND_FUNCTION(mapi_freebusyenumblock_restrict)
-{
-	time_t unixend;
-	uint32_t result;
-	time_t unixstart;
-	zval *pzresource;
-	uint64_t nttime_end;
-	uint64_t nttime_start;
-	MAPI_RESOURCE *penumblock;
-	
-	unixstart = 0;
-	unixend = -1;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
-		"rll", &pzresource, &unixstart, &unixend) == FAILURE
-		|| NULL == pzresource) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ZEND_FETCH_RESOURCE(penumblock, MAPI_RESOURCE*,
-		&pzresource, -1, name_fb_enumblock, le_freebusy_enumblock);
-	if (MAPI_FBENUMBLOCK != penumblock->type) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	nttime_start = unix_to_nttime(unixstart);
-	nttime_end = unix_to_nttime(unixend);
-	result = zarafa_client_fbenumrestrict(
-		penumblock->hsession, penumblock->hobject,
-		nttime_start, nttime_end);
-	if (EC_SUCCESS != result) {
-		MAPI_G(hr) = result;
-		goto THROW_EXCEPTION;
-	}
-	RETVAL_TRUE;
-	MAPI_G(hr) = EC_SUCCESS;
-	return;
-THROW_EXCEPTION:
-	if (MAPI_G(exceptions_enabled)) {
-		zend_throw_exception(MAPI_G(exception_ce),
-			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
-	}
-	RETVAL_FALSE;
-}
-
-ZEND_FUNCTION(mapi_freebusyenumblock_ical)
-{
-	long req_count;
-	BINARY ical_bin;
-	uint32_t result;
-	MAPI_RESOURCE *penumblock;
-	time_t unix_start, unix_end;
-	char *porganizer, *puser, *uid_str;
-	int organizer_len, user_len, uid_len;
-	zval *pzres_addrbook, *pzres_enumblock;
-	
-	puser = NULL;
-	uid_str = NULL;
-	porganizer = NULL;
-	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "rrlllsss",
-		&pzres_addrbook, &pzres_enumblock, &req_count, &unix_start,
-		&unix_end, &porganizer, &organizer_len, &puser, &user_len,
-		&uid_str, &uid_len) == FAILURE || NULL == pzres_enumblock) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	ZEND_FETCH_RESOURCE(penumblock, MAPI_RESOURCE*,
-		&pzres_enumblock, -1, name_fb_enumblock, le_freebusy_enumblock);
-	if (MAPI_FBENUMBLOCK != penumblock->type) {
-		MAPI_G(hr) = EC_INVALID_PARAMETER;
-		goto THROW_EXCEPTION;
-	}
-	if (0 == organizer_len) {
-		porganizer = NULL;
-	}
-	if (0 == user_len) {
-		puser = NULL;
-	}
-	if (0 == uid_len) {
-		uid_str = NULL;
-	}
-	result = zarafa_client_fbenumexport(
-		penumblock->hsession, penumblock->hobject, req_count,
-		unix_to_nttime(unix_start), unix_to_nttime(unix_end),
-		porganizer, puser, uid_str, &ical_bin);
-	if (EC_SUCCESS != result) {
-		MAPI_G(hr) = result;
-		goto THROW_EXCEPTION;	
-	}
-	RETVAL_STRING(ical_bin.pb, ical_bin.cb);
-	MAPI_G(hr) = EC_SUCCESS;
-	return;
-THROW_EXCEPTION:
-	if (MAPI_G(exceptions_enabled)) {
-		zend_throw_exception(MAPI_G(exception_ce),
-			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
-	}
-	RETVAL_FALSE;
-}
-
-ZEND_FUNCTION(mapi_freebusyupdate_publish)
-{
-	RETVAL_TRUE;
-}
-
-ZEND_FUNCTION(mapi_freebusyupdate_reset)
-{
-	RETVAL_TRUE;
-}
-
-ZEND_FUNCTION(mapi_freebusyupdate_savechanges)
-{
-	RETVAL_TRUE;
 }
 
 ZEND_FUNCTION(mapi_exportchanges_config)
@@ -6356,7 +5831,7 @@ ZEND_FUNCTION(mapi_mapitoical)
 		MAPI_G(hr) = result;
 		goto THROW_EXCEPTION;	
 	}
-	RETVAL_STRING(ical_bin.pb, ical_bin.cb);
+	RETVAL_STRINGL(ical_bin.pb, ical_bin.cb, 1);
 	MAPI_G(hr) = EC_SUCCESS;
 	return;
 THROW_EXCEPTION:
@@ -6439,7 +5914,7 @@ ZEND_FUNCTION(mapi_mapitovcf)
 		MAPI_G(hr) = result;
 		goto THROW_EXCEPTION;	
 	}
-	RETVAL_STRING(vcf_bin.pb, vcf_bin.cb);
+	RETVAL_STRINGL(vcf_bin.pb, vcf_bin.cb, 1);
 	MAPI_G(hr) = EC_SUCCESS;
 	return;
 THROW_EXCEPTION:
@@ -6493,6 +5968,11 @@ ZEND_FUNCTION(mapi_feature)
 			return;
 		}
 	}
+}
+
+ZEND_FUNCTION(mapi_msgstore_abortsubmit)
+{
+	RETVAL_TRUE;
 }
 
 ZEND_FUNCTION(kc_session_save)
@@ -6564,7 +6044,110 @@ ZEND_FUNCTION(kc_session_restore)
 	RETVAL_LONG(EC_SUCCESS);
 }
 
-ZEND_FUNCTION(mapi_msgstore_abortsubmit)
+
+ZEND_FUNCTION(nsp_getuserinfo)
 {
+	char *px500dn;
+	BINARY entryid;
+	char *username;
+	uint32_t result;
+	int username_len;
+	char *pdisplay_name;
+	uint32_t privilege_bits;
+	
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
+		"s", &username, &username_len) == FAILURE) {
+		MAPI_G(hr) = EC_INVALID_PARAMETER;
+		goto THROW_EXCEPTION;	
+	}
+	result = zarafa_client_uinfo(username, &entryid,
+		&pdisplay_name, &px500dn, &privilege_bits);
+	if (EC_SUCCESS != result) {
+		MAPI_G(hr) = result;
+		goto THROW_EXCEPTION;
+	}
+	array_init(return_value);
+	add_assoc_stringl(return_value, "userid", entryid.pb, entryid.cb, 1);
+	add_assoc_string(return_value, "username", username, 1);
+	add_assoc_string(return_value, "fullname", pdisplay_name, 1);
+	add_assoc_string(return_value, "essdn", px500dn, 1);
+	add_assoc_long(return_value, "privilege", privilege_bits);
+	MAPI_G(hr) = EC_SUCCESS;
+	return;
+THROW_EXCEPTION:
+	if (MAPI_G(exceptions_enabled)) {
+		zend_throw_exception(MAPI_G(exception_ce),
+			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
+	}
+	RETVAL_FALSE;
+}
+
+ZEND_FUNCTION(nsp_setuserpasswd)
+{
+	char *username;
+	uint32_t result;
+	int username_len;
+	char *old_passwd;
+	char *new_passwd;
+	int old_passwd_len;
+	int new_passwd_len;
+	
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC,
+		"sss", &username, &username_len, &old_passwd,
+		&old_passwd_len, &new_passwd, &new_passwd_len)
+		== FAILURE) {
+		MAPI_G(hr) = EC_INVALID_PARAMETER;
+		goto THROW_EXCEPTION;	
+	}
+	result = zarafa_client_setpasswd(username, old_passwd, new_passwd);
+	if (EC_SUCCESS != result) {
+		MAPI_G(hr) = result;
+		goto THROW_EXCEPTION;
+	}
 	RETVAL_TRUE;
+	return;
+THROW_EXCEPTION:
+	if (MAPI_G(exceptions_enabled)) {
+		zend_throw_exception(MAPI_G(exception_ce),
+			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
+	}
+	RETVAL_FALSE;
+}
+
+ZEND_FUNCTION(mapi_linkmessage)
+{
+	uint32_t result;
+	zval *pzresource;
+	BINARY search_entryid;
+	BINARY message_entryid;
+	MAPI_RESOURCE *psession;
+	
+	if (zend_parse_parameters(ZEND_NUM_ARGS() TSRMLS_CC, "r|ss",
+		&pzresource, &search_entryid.pb, &search_entryid.cb,
+		&message_entryid.pb, &message_entryid.cb) == FAILURE
+		|| NULL == pzresource || NULL == search_entryid.pb ||
+		NULL == message_entryid.pb) {
+		MAPI_G(hr) = EC_INVALID_PARAMETER;
+		goto THROW_EXCEPTION;
+	}
+	ZEND_FETCH_RESOURCE(psession, MAPI_RESOURCE*,
+		&pzresource, -1, name_mapi_session, le_mapi_session);
+	if (MAPI_SESSION != psession->type) {
+		MAPI_G(hr) = EC_INVALID_OBJECT;
+		goto THROW_EXCEPTION;
+	}
+	result = zarafa_client_linkmessage(psession->hsession,
+						search_entryid, message_entryid);
+	if (EC_SUCCESS != result) {
+		MAPI_G(hr) = result;
+		goto THROW_EXCEPTION;
+	}
+	MAPI_G(hr) = EC_SUCCESS;
+	return;
+THROW_EXCEPTION:
+	if (MAPI_G(exceptions_enabled)) {
+		zend_throw_exception(MAPI_G(exception_ce),
+			"MAPI error ", MAPI_G(hr) TSRMLS_CC);
+	}
+	RETVAL_FALSE;
 }

@@ -744,50 +744,6 @@ static BOOL rpc_ext_pull_znotification_array(
 	return TRUE;
 }
 
-static BOOL rpc_ext_pull_freebusy_block(
-	EXT_PULL *pext, FREEBUSY_BLOCK *r)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint64(
-		pext, &r->nttime_start)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint64(
-		pext, &r->nttime_end)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint8(
-		pext, &r->status)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_pull_fbblock_array(
-	EXT_PULL *pext, FBBLOCK_ARRAY *r)
-{
-	int i;
-	
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &r->count)) {
-		return FALSE;
-	}
-	if (0 == r->count) {
-		r->pblocks = NULL;
-		return TRUE;
-	}
-	r->pblocks = pext->alloc(sizeof(FREEBUSY_BLOCK)*r->count);
-	if (NULL == r->pblocks) {
-		return FALSE;
-	}
-	for (i=0; i<r->count; i++) {
-		if (TRUE != rpc_ext_pull_freebusy_block(
-			pext, &r->pblocks[i])) {
-			return FALSE;
-		}
-	}
-	return TRUE;
-}
-
 /*---------------------------------------------------------------------------*/
 
 static BOOL rpc_ext_push_zmovecopy_action(
@@ -1381,42 +1337,6 @@ static BOOL rpc_ext_push_znotification_array(
 	return TRUE;
 }
 
-static BOOL rpc_ext_push_freebusy_block(
-	EXT_PUSH *pext, const FREEBUSY_BLOCK *r)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_push_uint64(
-		pext, r->nttime_start)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_push_uint64(
-		pext, r->nttime_end)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_push_uint8(
-		pext, r->status)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_push_fbblock_array(
-	EXT_PUSH *pext, const FBBLOCK_ARRAY *r)
-{
-	int i;
-	
-	if (EXT_ERR_SUCCESS != ext_buffer_push_uint32(
-		pext, r->count)) {
-		return FALSE;
-	}
-	for (i=0; i<r->count; i++) {
-		if (TRUE != rpc_ext_push_freebusy_block(
-			pext, &r->pblocks[i])) {
-			return FALSE;
-		}
-	}
-	return TRUE;
-}
-
 /*---------------------------------------------------------------------------*/
 
 static BOOL rpc_ext_pull_logon_request(
@@ -1491,6 +1411,10 @@ static BOOL rpc_ext_push_uinfo_response(
 	if (EXT_ERR_SUCCESS != ext_buffer_push_string(
 		pext, ppayload->uinfo.px500dn)) {
 		return FALSE;
+	}
+	if (EXT_ERR_SUCCESS != ext_buffer_push_uint32(
+		pext, ppayload->uinfo.privilege_bits)) {
+		return FALSE;	
 	}
 	return TRUE;
 }
@@ -1634,30 +1558,6 @@ static BOOL rpc_ext_push_resolvename_response(
 	return TRUE;
 }
 
-static BOOL rpc_ext_pull_openrules_request(
-	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_guid(
-		pext, &ppayload->openrules.hsession)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->openrules.hfolder)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_push_openrules_response(
-	EXT_PUSH *pext, const RESPONSE_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_push_uint32(
-		pext, ppayload->openrules.hobject)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
 static BOOL rpc_ext_pull_getpermissions_request(
 	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
 {
@@ -1707,7 +1607,7 @@ static BOOL rpc_ext_pull_modifyrules_request(
 		return FALSE;
 	}
 	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->modifyrules.hrules)) {
+		pext, &ppayload->modifyrules.hfolder)) {
 		return FALSE;
 	}
 	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
@@ -1915,7 +1815,7 @@ static BOOL rpc_ext_pull_loadruletable_request(
 		return FALSE;
 	}
 	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->loadruletable.hrules)) {
+		pext, &ppayload->loadruletable.hfolder)) {
 		return FALSE;
 	}
 	return TRUE;
@@ -3571,252 +3471,6 @@ static BOOL rpc_ext_pull_setsearchcriteria_request(
 	return TRUE;
 }
 
-static BOOL rpc_ext_pull_openfreebusydata_request(
-	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_guid(
-		pext, &ppayload->openfreebusydata.hsession)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->openfreebusydata.hsupport)) {
-		return FALSE;
-	}
-	ppayload->openfreebusydata.pentryids =
-		pext->alloc(sizeof(BINARY_ARRAY));
-	if (NULL == ppayload->openfreebusydata.pentryids) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_binary_array(
-		pext, ppayload->openfreebusydata.pentryids)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_push_openfreebusydata_response(
-	EXT_PUSH *pext, const RESPONSE_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_push_long_array(
-		pext, &ppayload->openfreebusydata.hobject_array)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_pull_enumfreebusyblocks_request(
-	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_guid(pext,
-		&ppayload->enumfreebusyblocks.hsession)) {
-		return FALSE;	
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(pext,
-		&ppayload->enumfreebusyblocks.hfbdata)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint64(pext,
-		&ppayload->enumfreebusyblocks.nttime_start)) {
-		return FALSE;	
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint64(pext,
-		&ppayload->enumfreebusyblocks.nttime_end)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_push_enumfreebusyblocks_response(
-	EXT_PUSH *pext, const RESPONSE_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_push_uint32(
-		pext, ppayload->enumfreebusyblocks.hobject)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_pull_fbenumreset_request(
-	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_guid(
-		pext, &ppayload->fbenumreset.hsession)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->fbenumreset.hfbenum)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_pull_fbenumskip_request(
-	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_guid(
-		pext, &ppayload->fbenumskip.hsession)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->fbenumskip.hfbenum)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->fbenumskip.num)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_pull_fbenumrestrict_request(
-	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_guid(
-		pext, &ppayload->fbenumrestrict.hsession)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->fbenumrestrict.hfbenum)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint64(pext,
-		&ppayload->fbenumrestrict.nttime_start)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint64(
-		pext, &ppayload->fbenumrestrict.nttime_end)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_pull_fbenumexport_request(
-	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
-{
-	uint8_t tmp_byte;
-	
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_guid(
-		pext, &ppayload->fbenumexport.hsession)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->fbenumexport.hfbenum)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->fbenumexport.count)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint64(
-		pext, &ppayload->fbenumexport.nttime_start)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint64(
-		pext, &ppayload->fbenumexport.nttime_end)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint8(
-		pext, &tmp_byte)) {
-		return FALSE;
-	}
-	if (0 == tmp_byte) {
-		ppayload->fbenumexport.organizer_name = NULL;
-	} else {
-		if (EXT_ERR_SUCCESS != ext_buffer_pull_string(pext,
-			&ppayload->fbenumexport.organizer_name)) {
-			return FALSE;	
-		}
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint8(
-		pext, &tmp_byte)) {
-		return FALSE;
-	}
-	if (0 == tmp_byte) {
-		ppayload->fbenumexport.username = NULL;
-	} else {
-		if (EXT_ERR_SUCCESS != ext_buffer_pull_string(
-			pext, &ppayload->fbenumexport.username)) {
-			return FALSE;	
-		}
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint8(
-		pext, &tmp_byte)) {
-		return FALSE;
-	}
-	if (0 == tmp_byte) {
-		ppayload->fbenumexport.uid_string = NULL;
-	} else {
-		if (EXT_ERR_SUCCESS != ext_buffer_pull_string(
-			pext, &ppayload->fbenumexport.uid_string)) {
-			return FALSE;	
-		}
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_push_fbenumexport_response(
-	EXT_PUSH *pext, const RESPONSE_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_push_binary(
-		pext, &ppayload->fbenumexport.bin_ical)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_pull_fetchfreebusyblocks_request(
-	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_guid(pext,
-		&ppayload->fetchfreebusyblocks.hsession)) {
-		return FALSE;	
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(pext,
-		&ppayload->fetchfreebusyblocks.hfbenum)) {
-		return FALSE;
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->fetchfreebusyblocks.celt)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_push_fetchfreebusyblocks_response(
-	EXT_PUSH *pext, const RESPONSE_PAYLOAD *ppayload)
-{
-	return rpc_ext_push_fbblock_array(pext,
-		&ppayload->fetchfreebusyblocks.blocks);
-}
-
-static BOOL rpc_ext_pull_getfreebusyrange_request(
-	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_guid(pext,
-		&ppayload->getfreebusyrange.hsession)) {
-		return FALSE;	
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint32(
-		pext, &ppayload->getfreebusyrange.hfbdata)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
-static BOOL rpc_ext_push_getfreebusyrange_response(
-	EXT_PUSH *pext, const RESPONSE_PAYLOAD *ppayload)
-{
-	if (EXT_ERR_SUCCESS != ext_buffer_push_uint64(pext,
-		ppayload->getfreebusyrange.nttime_start)) {
-		return FALSE;	
-	}
-	if (EXT_ERR_SUCCESS != ext_buffer_push_uint64(
-		pext, ppayload->getfreebusyrange.nttime_end)) {
-		return FALSE;	
-	}
-	return TRUE;
-}
-
 static BOOL rpc_ext_pull_messagetorfc822_request(
 	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
 {
@@ -3958,6 +3612,83 @@ static BOOL rpc_ext_pull_vcftomessage_request(
 	return TRUE;
 }
 
+static BOOL rpc_ext_pull_getuseravailability_request(
+	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
+{
+	if (EXT_ERR_SUCCESS != ext_buffer_pull_guid(
+		pext, &ppayload->getuseravailability.hsession)) {
+		return FALSE;	
+	}
+	if (EXT_ERR_SUCCESS != ext_buffer_pull_binary(
+		pext, &ppayload->getuseravailability.entryid)) {
+		return FALSE;
+	}
+	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint64(
+		pext, &ppayload->getuseravailability.starttime)) {
+		return FALSE;	
+	}
+	if (EXT_ERR_SUCCESS != ext_buffer_pull_uint64(
+		pext, &ppayload->getuseravailability.endtime)) {
+		return FALSE;	
+	}
+	return TRUE;
+}
+
+static BOOL rpc_ext_push_getuseravailability_response(
+	EXT_PUSH *pext, const RESPONSE_PAYLOAD *ppayload)
+{
+	if (NULL == ppayload->getuseravailability.result_string) {
+		if (EXT_ERR_SUCCESS != ext_buffer_push_uint8(pext, 0)) {
+			return FALSE;
+		}
+		return TRUE;
+	}
+	if (EXT_ERR_SUCCESS != ext_buffer_push_uint8(pext, 1)) {
+			return FALSE;
+		}
+	if (EXT_ERR_SUCCESS != ext_buffer_push_string(pext,
+		ppayload->getuseravailability.result_string)) {
+		return FALSE;	
+	}
+	return TRUE;
+}
+
+static BOOL rpc_ext_pull_setpasswd_request(
+	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
+{
+	if (EXT_ERR_SUCCESS != ext_buffer_pull_string(
+		pext, &ppayload->setpasswd.username)) {
+		return FALSE;	
+	}
+	if (EXT_ERR_SUCCESS != ext_buffer_pull_string(
+		pext, &ppayload->setpasswd.passwd)) {
+		return FALSE;	
+	}
+	if (EXT_ERR_SUCCESS != ext_buffer_pull_string(
+		pext, &ppayload->setpasswd.new_passwd)) {
+		return FALSE;	
+	}
+	return TRUE;
+}
+
+static BOOL rpc_ext_pull_linkmessage_request(
+	EXT_PULL *pext, REQUEST_PAYLOAD *ppayload)
+{
+	if (EXT_ERR_SUCCESS != ext_buffer_pull_guid(
+		pext, &ppayload->linkmessage.hsession)) {
+		return FALSE;
+	}
+	if (EXT_ERR_SUCCESS != ext_buffer_pull_binary(
+		pext, &ppayload->linkmessage.search_entryid)) {
+		return FALSE;
+	}
+	if (EXT_ERR_SUCCESS != ext_buffer_pull_binary(
+		pext, &ppayload->linkmessage.message_entryid)) {
+		return FALSE;	
+	}
+	return TRUE;
+}
+
 BOOL rpc_ext_pull_request(const BINARY *pbin_in,
 	RPC_REQUEST *prequest)
 {
@@ -3993,9 +3724,6 @@ BOOL rpc_ext_pull_request(const BINARY *pbin_in,
 				&ext_pull, &prequest->payload);
 	case CALL_ID_RESOLVENAME:
 		return rpc_ext_pull_resolvename_request(
-				&ext_pull, &prequest->payload);
-	case CALL_ID_OPENRULES:
-		return rpc_ext_pull_openrules_request(
 				&ext_pull, &prequest->payload);
 	case CALL_ID_GETPERMISSIONS:
 		return rpc_ext_pull_getpermissions_request(
@@ -4198,30 +3926,6 @@ BOOL rpc_ext_pull_request(const BINARY *pbin_in,
 	case CALL_ID_SETSEARCHCRITERIA:
 		return rpc_ext_pull_setsearchcriteria_request(
 						&ext_pull, &prequest->payload);
-	case CALL_ID_OPENFREEBUSYDATA:
-		return rpc_ext_pull_openfreebusydata_request(
-						&ext_pull, &prequest->payload);
-	case CALL_ID_ENUMFREEBUSYBLOCKS:
-		return rpc_ext_pull_enumfreebusyblocks_request(
-						&ext_pull, &prequest->payload);
-	case CALL_ID_FBENUMRESET:
-		return rpc_ext_pull_fbenumreset_request(
-				&ext_pull, &prequest->payload);
-	case CALL_ID_FBENUMSKIP:
-		return rpc_ext_pull_fbenumskip_request(
-				&ext_pull, &prequest->payload);
-	case CALL_ID_FBENUMRESTRICT:
-		return rpc_ext_pull_fbenumreset_request(
-				&ext_pull, &prequest->payload);
-	case CALL_ID_FBENUMEXPORT:
-		return rpc_ext_pull_fbenumexport_request(
-					&ext_pull, &prequest->payload);
-	case CALL_ID_FETCHFREEBUSYBLOCKS:
-		return rpc_ext_pull_fetchfreebusyblocks_request(
-						&ext_pull, &prequest->payload);
-	case CALL_ID_GETFREEBUSYRANGE:
-		return rpc_ext_pull_getfreebusyrange_request(
-						&ext_pull, &prequest->payload);
 	case CALL_ID_MESSAGETORFC822:
 		return rpc_ext_pull_messagetorfc822_request(
 					&ext_pull, &prequest->payload);
@@ -4240,6 +3944,15 @@ BOOL rpc_ext_pull_request(const BINARY *pbin_in,
 	case CALL_ID_VCFTOMESSAGE:
 		return rpc_ext_pull_vcftomessage_request(
 					&ext_pull, &prequest->payload);
+	case CALL_ID_GETUSERAVAILABILITY:
+		return rpc_ext_pull_getuseravailability_request(
+						&ext_pull, &prequest->payload);
+	case CALL_ID_SETPASSWD:
+		return rpc_ext_pull_setpasswd_request(
+				&ext_pull, &prequest->payload);
+	case CALL_ID_LINKMESSAGE:
+		return rpc_ext_pull_linkmessage_request(
+				&ext_pull, &prequest->payload);
 	default:
 		return FALSE;
 	}
@@ -4313,10 +4026,6 @@ BOOL rpc_ext_push_response(const RPC_RESPONSE *presponse,
 		break;
 	case CALL_ID_RESOLVENAME:
 		b_result = rpc_ext_push_resolvename_response(
-					&ext_push, &presponse->payload);
-		break;
-	case CALL_ID_OPENRULES:
-		b_result = rpc_ext_push_openrules_response(
 					&ext_push, &presponse->payload);
 		break;
 	case CALL_ID_GETPERMISSIONS:
@@ -4543,31 +4252,6 @@ BOOL rpc_ext_push_response(const RPC_RESPONSE *presponse,
 	case CALL_ID_SETSEARCHCRITERIA:
 		b_result = TRUE;
 		break;
-	case CALL_ID_OPENFREEBUSYDATA:
-		b_result = rpc_ext_push_openfreebusydata_response(
-							&ext_push, &presponse->payload);
-		break;
-	case CALL_ID_ENUMFREEBUSYBLOCKS:
-		b_result = rpc_ext_push_enumfreebusyblocks_response(
-							&ext_push, &presponse->payload);
-		break;
-	case CALL_ID_FBENUMRESET:
-	case CALL_ID_FBENUMSKIP:
-	case CALL_ID_FBENUMRESTRICT:
-		b_result = TRUE;
-		break;
-	case CALL_ID_FBENUMEXPORT:
-		b_result = rpc_ext_push_fbenumexport_response(
-						&ext_push, &presponse->payload);
-		break;
-	case CALL_ID_FETCHFREEBUSYBLOCKS:
-		b_result = rpc_ext_push_fetchfreebusyblocks_response(
-							&ext_push, &presponse->payload);
-		break;
-	case CALL_ID_GETFREEBUSYRANGE:
-		b_result = rpc_ext_push_getfreebusyrange_response(
-							&ext_push, &presponse->payload);
-		break;
 	case CALL_ID_MESSAGETORFC822:
 		b_result = rpc_ext_push_messagetorfc822_response(
 							&ext_push, &presponse->payload);
@@ -4587,6 +4271,16 @@ BOOL rpc_ext_push_response(const RPC_RESPONSE *presponse,
 						&ext_push, &presponse->payload);
 		break;
 	case CALL_ID_VCFTOMESSAGE:
+		b_result = TRUE;
+		break;
+	case CALL_ID_GETUSERAVAILABILITY:
+		b_result = rpc_ext_push_getuseravailability_response(
+							&ext_push, &presponse->payload);
+		break;
+	case CALL_ID_SETPASSWD:
+		b_result = TRUE;
+		break;
+	case CALL_ID_LINKMESSAGE:
 		b_result = TRUE;
 		break;
 	default:

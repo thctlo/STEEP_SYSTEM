@@ -3183,6 +3183,19 @@ BOOL exmdb_server_update_folder_permission(const char *dir,
 				continue;
 			}
 			permission = *(uint32_t*)pvalue;
+			if (permission & PERMISSION_READANY) {
+				permission |= PERMISSION_FOLDERVISIBLE;
+			}
+			if (permission & PERMISSION_FOLDEROWNER) {
+				permission |= PERMISSION_FOLDERVISIBLE;
+				permission |= PERMISSION_FOLDERCONTACT;
+			}
+			if (permission & PERMISSION_DELETEANY) {
+				permission |= PERMISSION_DELETEOWNED;
+			}
+			if (permission & PERMISSION_EDITANY) {
+				permission |= PERMISSION_EDITOWNED;
+			}
 			if (FALSE == b_freebusy ||
 				FALSE == exmdb_server_check_private()
 				|| fid_val != PRIVATE_FID_CALENDAR) {
@@ -3314,6 +3327,19 @@ BOOL exmdb_server_update_folder_permission(const char *dir,
 				continue;
 			}
 			permission = *(uint32_t*)pvalue;
+			if (permission & PERMISSION_READANY) {
+				permission |= PERMISSION_FOLDERVISIBLE;
+			}
+			if (permission & PERMISSION_FOLDEROWNER) {
+				permission |= PERMISSION_FOLDERVISIBLE;
+				permission |= PERMISSION_FOLDERCONTACT;
+			}
+			if (permission & PERMISSION_DELETEANY) {
+				permission |= PERMISSION_DELETEOWNED;
+			}
+			if (permission & PERMISSION_EDITANY) {
+				permission |= PERMISSION_EDITOWNED;
+			}
 			if (FALSE == b_freebusy ||
 				FALSE == exmdb_server_check_private()
 				|| fid_val != PRIVATE_FID_CALENDAR) {
@@ -3779,4 +3805,29 @@ RULE_FAILURE:
 	}
 	db_engine_put_db(pdb);
 	return FALSE;
+}
+
+/* public only */
+BOOL exmdb_server_get_public_folder_unread_count(const char *dir,
+	const char *username, uint64_t folder_id, uint32_t *pcount)
+{
+	DB_ITEM *pdb;
+	
+	if (TRUE == exmdb_server_check_private()) {
+		return FALSE;
+	}
+	pdb = db_engine_get_db(dir);
+	if (NULL == pdb) {
+		return FALSE;
+	}
+	if (NULL == pdb->psqlite) {
+		db_engine_put_db(pdb);
+		return FALSE;
+	}
+	exmdb_server_set_public_username(username);
+	*pcount = common_util_get_folder_unread_count(
+		pdb->psqlite, rop_util_get_gc_value(folder_id));
+	db_engine_put_db(pdb);
+	return TRUE;
+	
 }

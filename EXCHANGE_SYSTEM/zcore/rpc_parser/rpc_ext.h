@@ -52,11 +52,6 @@ typedef struct _REQ_RESOLVENAME {
 	TARRAY_SET *pcond_set;
 } REQ_RESOLVENAME;
 
-typedef struct _REQ_OPENRULES {
-	GUID hsession;
-	uint32_t hfolder;
-} REQ_OPENRULES;
-
 typedef struct _REQ_GETPERMISSIONS {
 	GUID hsession;
 	uint32_t hobject;
@@ -70,7 +65,7 @@ typedef struct _REQ_MODIFYPERMISSIONS {
 
 typedef struct _REQ_MODIFYRULES {
 	GUID hsession;
-	uint32_t hrules;
+	uint32_t hfolder;
 	uint32_t flags;
 	RULE_LIST *plist;
 } REQ_MODIFYRULES;
@@ -112,7 +107,7 @@ typedef struct _REQ_LOADRECIPIENTTABLE {
 
 typedef struct _REQ_LOADRULETABLE {
 	GUID hsession;
-	uint32_t hrules;
+	uint32_t hfolder;
 } REQ_LOADRULETABLE;
 	
 typedef struct _REQ_CREATEMESSAGE {
@@ -463,59 +458,6 @@ typedef struct _REQ_SETSEARCHCRITERIA {
 	RESTRICTION *prestriction;
 } REQ_SETSEARCHCRITERIA;
 
-typedef struct _REQ_OPENFREEBUSYDATA {
-	GUID hsession;
-	uint32_t hsupport;
-	BINARY_ARRAY *pentryids;
-} REQ_OPENFREEBUSYDATA;
-
-typedef struct _REQ_ENUMFREEBUSYBLOCKS {
-	GUID hsession;
-	uint32_t hfbdata;
-	uint64_t nttime_start;
-	uint64_t nttime_end;
-} REQ_ENUMFREEBUSYBLOCKS;
-
-typedef struct _REQ_FBENUMRESET {
-	GUID hsession;
-	uint32_t hfbenum;
-} REQ_FBENUMRESET;
-
-typedef struct _REQ_FBENUMSKIP {
-	GUID hsession;
-	uint32_t hfbenum;
-	uint32_t num;
-} REQ_FBENUMSKIP;
-	
-typedef struct _REQ_FBENUMRESTRICT {
-	GUID hsession;
-	uint32_t hfbenum;
-	uint64_t nttime_start;
-	uint64_t nttime_end;
-} REQ_FBENUMRESTRICT;
-
-typedef struct _REQ_FBENUMEXPORT {
-	GUID hsession;
-	uint32_t hfbenum;
-	uint32_t count;
-	uint64_t nttime_start;
-	uint64_t nttime_end;
-	char *organizer_name;
-	char *username;
-	char *uid_string;
-} REQ_FBENUMEXPORT;
-
-typedef struct _REQ_FETCHFREEBUSYBLOCKS {
-	GUID hsession;
-	uint32_t hfbenum;
-	uint32_t celt;
-} REQ_FETCHFREEBUSYBLOCKS;
-	
-typedef struct _REQ_GETFREEBUSYRANGE {
-	GUID hsession;
-	uint32_t hfbdata;
-} REQ_GETFREEBUSYRANGE;
-
 typedef struct _REQ_MESSAGETORFC822 {
 	GUID hsession;
 	uint32_t hmessage;
@@ -549,6 +491,25 @@ typedef struct _REQ_VCFTOMESSAGE {
 	BINARY *pvcf_bin;
 } REQ_VCFTOMESSAGE;
 
+typedef struct _REQ_GETUSERAVAILABILITY {
+	GUID hsession;
+	BINARY entryid;
+	uint64_t starttime;
+	uint64_t endtime;
+} REQ_GETUSERAVAILABILITY;
+
+typedef struct _REQ_SETPASSWD {
+	char *username;
+	char *passwd;
+	char *new_passwd;
+} REQ_SETPASSWD;
+
+typedef struct _REQ_LINKMESSAGE {
+	GUID hsession;
+	BINARY search_entryid;
+	BINARY message_entryid;
+} REQ_LINKMESSAGE;
+
 typedef union _REQUEST_PAYLOAD {
 	REQ_LOGON logon;
 	REQ_CHECKSESSION checksession;
@@ -558,7 +519,6 @@ typedef union _REQUEST_PAYLOAD {
 	REQ_OPENSTOREENTRY openstoreentry;
 	REQ_OPENABENTRY openabentry;
 	REQ_RESOLVENAME resolvename;
-	REQ_OPENRULES openrules;
 	REQ_GETPERMISSIONS getpermissions;
 	REQ_MODIFYPERMISSIONS modifypermissions;
 	REQ_MODIFYRULES modifyrules;
@@ -626,20 +586,15 @@ typedef union _REQUEST_PAYLOAD {
 	REQ_IMPORTREADSTATES importreadstates;
 	REQ_GETSEARCHCRITERIA getsearchcriteria;
 	REQ_SETSEARCHCRITERIA setsearchcriteria;
-	REQ_OPENFREEBUSYDATA openfreebusydata;
-	REQ_ENUMFREEBUSYBLOCKS enumfreebusyblocks;
-	REQ_FBENUMRESET fbenumreset;
-	REQ_FBENUMSKIP fbenumskip;
-	REQ_FBENUMRESTRICT fbenumrestrict;
-	REQ_FBENUMEXPORT fbenumexport;
-	REQ_FETCHFREEBUSYBLOCKS fetchfreebusyblocks;
-	REQ_GETFREEBUSYRANGE getfreebusyrange;
 	REQ_MESSAGETORFC822 messagetorfc822;
 	REQ_RFC822TOMESSAGE rfc822tomessage;
 	REQ_MESSAGETOICAL messagetoical;
 	REQ_ICALTOMESSAGE icaltomessage;
 	REQ_MESSAGETOVCF messagetovcf;
 	REQ_VCFTOMESSAGE vcftomessage;
+	REQ_GETUSERAVAILABILITY getuseravailability;
+	REQ_SETPASSWD setpasswd;
+	REQ_LINKMESSAGE linkmessage;
 } REQUEST_PAYLOAD;
 
 typedef struct _RPC_REQUEST {
@@ -655,6 +610,7 @@ typedef struct _RESP_UINFO {
 	BINARY entryid;
 	char *pdisplay_name;
 	char *px500dn;
+	uint32_t privilege_bits;
 } RESP_UINFO;
 
 typedef struct _RESP_OPENENTRY {
@@ -675,10 +631,6 @@ typedef struct _RESP_OPENABENTRY {
 typedef struct _RESP_RESOLVENAME {
 	TARRAY_SET result_set;
 } RESP_RESOLVENAME;
-
-typedef struct _RESP_OPENRULES {
-	uint32_t hobject;
-} RESP_OPENRULES;
 
 typedef struct _RESP_GETPERMISSIONS {
 	PERMISSION_SET perm_set;
@@ -855,27 +807,6 @@ typedef struct _RESP_GETSEARCHCRITERIA {
 	uint32_t search_stat;
 } RESP_GETSEARCHCRITERIA;
 
-typedef struct _RESP_OPENFREEBUSYDATA {
-	LONG_ARRAY hobject_array;
-} RESP_OPENFREEBUSYDATA;
-
-typedef struct _RESP_ENUMFREEBUSYBLOCKS {
-	uint32_t hobject;
-} RESP_ENUMFREEBUSYBLOCKS;
-
-typedef struct _RESP_FBENUMEXPORT {
-	BINARY bin_ical;
-} RESP_FBENUMEXPORT;
-
-typedef struct _RESP_FETCHFREEBUSYBLOCKS {
-	FBBLOCK_ARRAY blocks;
-} RESP_FETCHFREEBUSYBLOCKS;
-	
-typedef struct _RESP_GETFREEBUSYRANGE {
-	uint64_t nttime_start;
-	uint64_t nttime_end;
-} RESP_GETFREEBUSYRANGE;
-
 typedef struct _RESP_MESSAGETORFC822 {
 	BINARY eml_bin;
 } RESP_MESSAGETORFC822;
@@ -888,6 +819,10 @@ typedef struct _RESP_MESSAGETOVCF {
 	BINARY vcf_bin;
 } RESP_MESSAGETOVCF;
 
+typedef struct _RESP_GETUSERAVAILABILITY {
+	char *result_string;
+} RESP_GETUSERAVAILABILITY;
+
 typedef union _RESPONSE_PAYLOAD {
 	RESP_LOGON logon;
 	RESP_UINFO uinfo;
@@ -895,7 +830,6 @@ typedef union _RESPONSE_PAYLOAD {
 	RESP_OPENSTOREENTRY openstoreentry;
 	RESP_OPENABENTRY openabentry;
 	RESP_RESOLVENAME resolvename;
-	RESP_OPENRULES openrules;
 	RESP_GETPERMISSIONS getpermissions;
 	RESP_GETABGAL getabgal;
 	RESP_LOADSTORETABLE loadstoretable;
@@ -937,14 +871,10 @@ typedef union _RESPONSE_PAYLOAD {
 	RESP_STATEIMPORT stateimport;
 	RESP_IMPORTMESSAGE importmessage;
 	RESP_GETSEARCHCRITERIA getsearchcriteria;
-	RESP_OPENFREEBUSYDATA openfreebusydata;
-	RESP_ENUMFREEBUSYBLOCKS enumfreebusyblocks;
-	RESP_FBENUMEXPORT fbenumexport;
-	RESP_FETCHFREEBUSYBLOCKS fetchfreebusyblocks;
-	RESP_GETFREEBUSYRANGE getfreebusyrange;
 	RESP_MESSAGETORFC822 messagetorfc822;
 	RESP_MESSAGETOICAL messagetoical;
 	RESP_MESSAGETOVCF messagetovcf;
+	RESP_GETUSERAVAILABILITY getuseravailability;
 } RESPONSE_PAYLOAD;
 
 typedef struct _RPC_RESPONSE {

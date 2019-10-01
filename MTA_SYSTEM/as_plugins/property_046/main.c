@@ -1,10 +1,13 @@
 #include "as_common.h"
+#include "mail_func.h"
 #include "config_file.h"
 #include "util.h"
+#include <time.h>
+#include <netdb.h>
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
+#include <sys/socket.h> 
 
 
 #define SPAM_STATISTIC_PROPERTY_046		83
@@ -84,7 +87,10 @@ static int head_filter(int context_ID, MAIL_ENTITY *pmail,
 	CONNECTION *pconnection, char *reason, int length)
 {
 	int out_len;
+	int h_errnop;
+	in_addr_t addr;
 	char buff[1024];
+	struct hostent hostinfo, *phost;
 	
 	if (TRUE == pmail->penvelop->is_relay ||
 		TRUE == pmail->penvelop->is_outbound) {
@@ -101,20 +107,19 @@ static int head_filter(int context_ID, MAIL_ENTITY *pmail,
     if (MEM_END_OF_FILE == out_len) {   /* no content type */
         return MESSAGE_ACCEPT;
     }
-	if (NULL == search_string(buff, "boundary=\"b1_", out_len) &&
-		NULL == search_string(buff, "boundary=\"=====001_Dragon", out_len)) {
+	if (NULL == search_string(buff, "boundary=\"=====001_Dragon", out_len)) {
 		return MESSAGE_ACCEPT;
 	}
-	if (TRUE == check_tagging(pmail->penvelop->from,
-		&pmail->penvelop->f_rcpt_to)) {
-		mark_context_spam(context_ID);
+	inet_pton(AF_INET, pconnection->client_ip, &addr);
+	if (0 == gethostbyaddr_r((char*)&addr, sizeof(addr),
+		AF_INET, &hostinfo, buff, sizeof(buff), &phost,
+		&h_errnop) && NULL != phost && NULL == extract_ip(
+		phost->h_name, buff)) {
 		return MESSAGE_ACCEPT;
-	} else {
-		if (NULL != spam_statistic) {
-			spam_statistic(SPAM_STATISTIC_PROPERTY_046);
-		}
-		strncpy(reason, g_return_reason, length);
-		return MESSAGE_REJECT;
 	}
-	return MESSAGE_ACCEPT;
+	if (NULL != spam_statistic) {
+		spam_statistic(SPAM_STATISTIC_PROPERTY_046);
+	}
+	strncpy(reason, g_return_reason, length);
+	return MESSAGE_REJECT;
 }

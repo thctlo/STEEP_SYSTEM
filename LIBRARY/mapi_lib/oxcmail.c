@@ -323,6 +323,19 @@ static BOOL oxcmail_check_ascii(const char *pstring)
 	return TRUE;
 }
 
+static BOOL oxcmail_check_crlf(const char *pstring)
+{
+	int i, len;
+	
+	len = strlen(pstring);
+	for (i=0; i<len; i++) {
+		if ('\r' == pstring[i] || '\n' == pstring[i]) {
+			return TRUE;
+		}
+	}
+	return FALSE;
+}
+
 static BOOL oxcmail_get_content_param(MIME *pmime,
 	const char *tag, char *value, int length)
 {
@@ -1024,11 +1037,21 @@ static BOOL oxcmail_parse_thread_topic(const char *charset,
 static BOOL oxcmail_parse_thread_index(
 	char *field,  TPROPVAL_ARRAY *pproplist)
 {
+	int i;
 	size_t len;
 	BINARY tmp_bin;
 	TAGGED_PROPVAL propval;
 	char tmp_buff[MIME_FIELD_LEN];
 	
+	/* remove space(s) produced by mime lib */
+	len = strlen(field);
+	for (i=0; i<len; i++) {
+		if (' ' == field[i]) {
+			memmove(field + i, field + i + 1, len - i);
+			len --;
+			i --;
+		}
+	}
 	len = sizeof(tmp_buff);
 	if (0 != decode64(field, strlen(field), tmp_buff, &len)) {
 		return TRUE;
@@ -1478,7 +1501,7 @@ static BOOL oxcmail_parse_classification(char *field,
 		return FALSE;
 	}
 	propval.proptag = ((uint32_t)(*plast_propid)) << 16;
-	if (0 == oxcmail_check_ascii(field)) {
+	if (TRUE == oxcmail_check_ascii(field)) {
 		propval.proptag |= PROPVAL_TYPE_WSTRING;
 	} else {
 		propval.proptag |= PROPVAL_TYPE_STRING;
@@ -1507,7 +1530,7 @@ static BOOL oxcmail_parse_classdesc(char *field,
 		return FALSE;
 	}
 	propval.proptag = ((uint32_t)(*plast_propid)) << 16;
-	if (0 == oxcmail_check_ascii(field)) {
+	if (TRUE == oxcmail_check_ascii(field)) {
 		propval.proptag |= PROPVAL_TYPE_WSTRING;
 	} else {
 		propval.proptag |= PROPVAL_TYPE_STRING;
@@ -1536,7 +1559,7 @@ static BOOL oxcmail_parse_classid(char *field,
 		return FALSE;
 	}
 	propval.proptag = ((uint32_t)(*plast_propid)) << 16;
-	if (0 == oxcmail_check_ascii(field)) {
+	if (TRUE == oxcmail_check_ascii(field)) {
 		propval.proptag |= PROPVAL_TYPE_WSTRING;
 	} else {
 		propval.proptag |= PROPVAL_TYPE_STRING;
@@ -5183,7 +5206,8 @@ static int oxcmail_encode_mime_string(const char *charset,
 	char tmp_buff[MIME_FIELD_LEN];
 	
 	
-	if (FALSE == oxcmail_check_ascii(pstring)) {
+	if (FALSE == oxcmail_check_ascii(pstring) ||
+		TRUE == oxcmail_check_crlf(pstring)) {
 		if (TRUE == string_from_utf8(
 			charset, pstring, tmp_buff)) {
 			string_len = strlen(tmp_buff);
@@ -6430,7 +6454,7 @@ EXPORT_CONTENT_CLASS:
 	propid = propids.ppropid[0];
 	proptag = ((uint32_t)propid) << 16 | PROPVAL_TYPE_WSTRING;
 	pvalue = tpropval_array_get_propval(&pmsg->proplist, proptag);
-	if (NULL != pvalue) {
+	if (NULL != pvalue && '\0' != *(char*)pvalue) {
 		if (FALSE == mime_set_field(phead,
 			"X-Message-Flag", pvalue)) {
 			return FALSE;

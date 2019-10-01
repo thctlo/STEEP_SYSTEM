@@ -5,8 +5,11 @@
 #include "ext_buffer.h"
 #include "rop_util.h"
 #include <stdio.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 
 FOLDER_OBJECT* folder_object_create(STORE_OBJECT *pstore,
@@ -230,7 +233,10 @@ static BOOL folder_object_get_calculated_property(
 	USER_INFO *pinfo;
 	EXT_PUSH ext_push;
 	char temp_buff[1024];
+	uint32_t tmp_proptag;
 	PERSISTDATA *ppersistdata;
+	PROPTAG_ARRAY tmp_proptags;
+	TPROPVAL_ARRAY tmp_propvals;
 	static uint8_t bin_buff[22];
 	static uint32_t fake_del = 0;
 	PERSISTDATA_ARRAY persistdatas;
@@ -240,6 +246,19 @@ static BOOL folder_object_get_calculated_property(
 	case PROP_TAG_ACCESS:
 		*ppvalue = &pfolder->tag_access;
 		return TRUE;
+	case PROP_TAG_CONTENTUNREADCOUNT:
+		if (FALSE == store_object_check_private(pfolder->pstore)) {
+			*ppvalue = common_util_alloc(sizeof(uint32_t));
+			if (NULL == *ppvalue) {
+				return FALSE;
+			}
+			pinfo = zarafa_server_get_info();
+			return exmdb_client_get_public_folder_unread_count(
+						store_object_get_dir(pfolder->pstore),
+						pinfo->username, pfolder->folder_id,
+						*ppvalue);
+		}
+		return FALSE;
 	case PROP_TAG_FOLDERID:
 		*ppvalue = common_util_alloc(sizeof(uint64_t));
 		if (NULL == *ppvalue) {
@@ -924,6 +943,44 @@ BOOL folder_object_set_permissions(FOLDER_OBJECT *pfolder,
 	}
 	count = 0;
 	for (i=0; i<pperm_set->count; i++) {
+		if (pperm_set->prows[i].flags & (RIGHT_NEW | RIGHT_MODIFY)) {
+			for (j=0; j<permission_set.count; j++) {
+				pentryid = common_util_get_propvals(
+							permission_set.pparray[j],
+							PROP_TAG_ENTRYID);
+				if (NULL != pentryid && pentryid->cb ==
+					pperm_set->prows[i].entryid.cb && 0 ==
+					memcmp(pperm_set->prows[i].entryid.pb,
+					pentryid->pb, pentryid->cb)) {
+					break;	
+				}
+			}
+			if (j < permission_set.count) {
+				pmember_id = common_util_get_propvals(
+							permission_set.pparray[j],
+							PROP_TAG_MEMBERID);
+				if (NULL == pmember_id) {
+					continue;
+				}
+				pperm_data[count].flags = PERMISSION_DATA_FLAG_MODIFY_ROW;
+				pperm_data[count].propvals.count = 2;
+				pperm_data[count].propvals.ppropval =
+					common_util_alloc(2*sizeof(TAGGED_PROPVAL));
+				if (NULL == pperm_data[i].propvals.ppropval) {
+					return FALSE;
+				}
+				pperm_data[count].propvals.ppropval[0].proptag =
+												PROP_TAG_MEMBERID;
+				pperm_data[count].propvals.ppropval[0].pvalue =
+													pmember_id;
+				pperm_data[count].propvals.ppropval[1].proptag =
+											PROP_TAG_MEMBERRIGHTS;
+				pperm_data[count].propvals.ppropval[1].pvalue =
+							&pperm_set->prows[i].member_rights;
+				count ++;
+				continue;
+			}
+		}
 		if (pperm_set->prows[i].flags & RIGHT_NEW) {
 			pperm_data[count].flags = PERMISSION_DATA_FLAG_ADD_ROW;
 			pperm_data[count].propvals.count = 2;
@@ -936,42 +993,6 @@ BOOL folder_object_set_permissions(FOLDER_OBJECT *pfolder,
 											PROP_TAG_ENTRYID;
 			pperm_data[count].propvals.ppropval[0].pvalue =
 								&pperm_set->prows[i].entryid;
-			pperm_data[count].propvals.ppropval[1].proptag =
-										PROP_TAG_MEMBERRIGHTS;
-			pperm_data[count].propvals.ppropval[1].pvalue =
-						&pperm_set->prows[i].member_rights;
-		} else if (pperm_set->prows[i].flags & RIGHT_MODIFY) {
-			for (j=0; j<permission_set.count; j++) {
-				pentryid = common_util_get_propvals(
-							permission_set.pparray[j],
-							PROP_TAG_ENTRYID);
-				if (NULL != pentryid && pentryid->cb ==
-					pperm_set->prows[i].entryid.cb && 0 ==
-					memcmp(pperm_set->prows[i].entryid.pb,
-					pentryid->pb, pentryid->cb)) {
-					break;	
-				}
-			}
-			if (j >= permission_set.count) {
-				continue;
-			}
-			pmember_id = common_util_get_propvals(
-						permission_set.pparray[j],
-						PROP_TAG_MEMBERID);
-			if (NULL == pmember_id) {
-				continue;
-			}
-			pperm_data[count].flags = PERMISSION_DATA_FLAG_MODIFY_ROW;
-			pperm_data[count].propvals.count = 2;
-			pperm_data[count].propvals.ppropval =
-				common_util_alloc(2*sizeof(TAGGED_PROPVAL));
-			if (NULL == pperm_data[i].propvals.ppropval) {
-				return FALSE;
-			}
-			pperm_data[count].propvals.ppropval[0].proptag =
-											PROP_TAG_MEMBERID;
-			pperm_data[count].propvals.ppropval[0].pvalue =
-												pmember_id;
 			pperm_data[count].propvals.ppropval[1].proptag =
 										PROP_TAG_MEMBERRIGHTS;
 			pperm_data[count].propvals.ppropval[1].pvalue =
@@ -1022,4 +1043,121 @@ BOOL folder_object_set_permissions(FOLDER_OBJECT *pfolder,
 	}
 	return exmdb_client_update_folder_permission(dir,
 		pfolder->folder_id, b_freebusy, count, pperm_data);
+}
+
+static BOOL folder_object_flush_delegats(int fd,
+	FORWARDDELEGATE_ACTION *paction)
+{
+	int i, j;
+	int tmp_len;
+	char *ptype;
+	char *paddress;
+	BINARY *pentryid;
+	char address_buff[256];
+
+	for (i=0; i<paction->count; i++) {
+		ptype = NULL;
+		paddress = NULL;
+		pentryid = NULL;
+		for (j=0; j<paction->pblock[i].count; j++) {
+			switch (paction->pblock[i].ppropval[j].proptag) {
+			case PROP_TAG_ADDRESSTYPE:
+				ptype = paction->pblock[i].ppropval[j].pvalue;
+				break;
+			case PROP_TAG_ENTRYID:
+				pentryid = paction->pblock[i].ppropval[j].pvalue;
+				break;
+			case PROP_TAG_EMAILADDRESS:
+				paddress = paction->pblock[i].ppropval[j].pvalue;
+				break;
+			}
+		}
+		address_buff[0] = '\0';
+		if (NULL != ptype && NULL != paddress) {
+			if (0 == strcasecmp(ptype, "SMTP")) {
+				strncpy(address_buff, paddress, sizeof(address_buff));
+			} else if (0 == strcasecmp(ptype, "EX")) {
+				common_util_essdn_to_username(paddress, address_buff);
+			}
+		}
+		if ('\0' == address_buff[0] && NULL != pentryid) {
+			if (FALSE == common_util_entryid_to_username(
+				pentryid, address_buff)) {
+				return FALSE;	
+			}
+		}
+		if ('\0' != address_buff[0]) {
+			tmp_len = strlen(address_buff);
+			address_buff[tmp_len] = '\n';
+			tmp_len ++;
+			write(fd, address_buff, tmp_len);
+		}
+	}
+	return TRUE;
+}
+
+
+BOOL folder_object_updaterules(FOLDER_OBJECT *pfolder,
+	uint32_t flags, const RULE_LIST *plist)
+{
+	int i, fd;
+	BOOL b_exceed;
+	BOOL b_delegate;
+	char *pprovider;
+	char temp_path[256];
+	RULE_ACTIONS *pactions;
+	
+	if (flags & MODIFY_RULES_FLAG_REPLACE) {
+		if (FALSE == exmdb_client_empty_folder_rule(
+			store_object_get_dir(pfolder->pstore),
+			pfolder->folder_id)) {
+			return FALSE;	
+		}
+	}
+	b_delegate = FALSE;
+	for (i=0; i<plist->count; i++) {
+		if (FALSE == common_util_convert_from_zrule(
+			&plist->prule[i].propvals)) {
+			return FALSE;	
+		}
+		pprovider = common_util_get_propvals(
+				&plist->prule[i].propvals,
+				PROP_TAG_RULEPROVIDER);
+		if (NULL == pprovider || 0 != strcasecmp(
+			pprovider, "Schedule+ EMS Interface")) {
+			continue;	
+		}
+		pactions = common_util_get_propvals(
+					&plist->prule[i].propvals,
+					PROP_TAG_RULEACTIONS);
+		if (NULL != pactions) {
+			b_delegate = TRUE;
+		}
+	}
+	if (TRUE == store_object_check_private(pfolder->pstore) &&
+		PRIVATE_FID_INBOX == rop_util_get_gc_value(pfolder->folder_id)
+		&& ((flags & MODIFY_RULES_FLAG_REPLACE) || TRUE == b_delegate)) {
+		sprintf(temp_path, "%s/config/delegates.txt",
+				store_object_get_dir(pfolder->pstore));
+		fd = open(temp_path, O_CREAT|O_TRUNC|O_WRONLY, 0666);
+		if (-1 != fd) {
+			if (TRUE == b_delegate) {
+				for (i=0; i<pactions->count; i++) {
+					if (ACTION_TYPE_OP_DELEGATE ==
+						pactions->pblock[i].type) {
+						if (FALSE == folder_object_flush_delegats(
+							fd, pactions->pblock[i].pdata)) {
+							close(fd);
+							return FALSE;
+						}
+					}
+				}
+			}
+			close(fd);
+		}
+	}
+	return exmdb_client_update_folder_rule(
+		store_object_get_dir(pfolder->pstore),
+		pfolder->folder_id, plist->count,
+		plist->prule, &b_exceed);
 }

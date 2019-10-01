@@ -22,8 +22,9 @@ typedef struct _USER_INFO {
 	uint32_t cpid;
 	char maildir[256];
 	char homedir[256];
-	char *password;
+	uint32_t flags;
 	time_t last_time;
+	time_t reload_time;
 	OBJECT_TREE *ptree;
 	pthread_mutex_t lock;
 	DOUBLE_LIST sink_list;
@@ -47,8 +48,8 @@ uint32_t zarafa_server_logon(const char *username,
 
 uint32_t zarafa_server_checksession(GUID hsession);
 	
-uint32_t zarafa_server_uinfo(const char *username,
-	BINARY *pentryid, char **ppdisplay_name, char **ppx500dn);
+uint32_t zarafa_server_uinfo(const char *username, BINARY *pentryid,
+	char **ppdisplay_name, char **ppx500dn, uint32_t *pprivilege_bits);
 
 uint32_t zarafa_server_unloadobject(GUID hsession, uint32_t hobject);
 
@@ -65,9 +66,6 @@ uint32_t zarafa_server_openabentry(GUID hsession,
 uint32_t zarafa_server_resolvename(GUID hsession,
 	const TARRAY_SET *pcond_set, TARRAY_SET *presult_set);
 
-uint32_t zarafa_server_openrules(GUID hsession,
-	uint32_t hfolder, uint32_t *phobject);
-
 uint32_t zarafa_server_getpermissions(GUID hsession,
 	uint32_t hobject, PERMISSION_SET *pperm_set);
 
@@ -75,7 +73,7 @@ uint32_t zarafa_server_modifypermissions(GUID hsession,
 	uint32_t hfolder, const PERMISSION_SET *pset);
 
 uint32_t zarafa_server_modifyrules(GUID hsession,
-	uint32_t hrules, uint32_t flags, const RULE_LIST *plist);
+	uint32_t hfolder, uint32_t flags, const RULE_LIST *plist);
 
 uint32_t zarafa_server_getabgal(GUID hsession, BINARY *pentryid);
 
@@ -98,7 +96,7 @@ uint32_t zarafa_server_loadrecipienttable(GUID hsession,
 	uint32_t hmessage, uint32_t *phobject);
 
 uint32_t zarafa_server_loadruletable(GUID hsession,
-	uint32_t hrules, uint32_t *phobject);
+	uint32_t hfolder, uint32_t *phobject);
 
 uint32_t zarafa_server_createmessage(GUID hsession,
 	uint32_t hfolder,  uint32_t flags, uint32_t *phobject);
@@ -285,34 +283,6 @@ uint32_t zarafa_server_setsearchcriteria(
 	const BINARY_ARRAY *pfolder_array,
 	const RESTRICTION *prestriction);
 
-uint32_t zarafa_server_openfreebusydata(GUID hsession,
-	uint32_t hsupport, const BINARY_ARRAY *pentryids,
-	LONG_ARRAY *phobject_array);
-
-uint32_t zarafa_server_enumfreebusyblocks(GUID hsession,
-	uint32_t hfbdata, uint64_t nttime_start, uint64_t nttime_end,
-	uint32_t *phobject);
-
-uint32_t zarafa_server_fbenumreset(GUID hsession, uint32_t hfbenum);
-
-uint32_t zarafa_server_fbenumskip(GUID hsession,
-	uint32_t hfbenum, uint32_t num);
-
-uint32_t zarafa_server_fbenumrestrict(GUID hsession,
-	uint32_t hfbenum, uint64_t nttime_start, uint64_t nttime_end);
-
-uint32_t zarafa_server_fbenumexport(GUID hsession,
-	uint32_t hfbenum, uint32_t count, uint64_t nttime_start,
-	uint64_t nttime_end, const char *organizer_name,
-	const char *username, const char *uid_string,
-	BINARY *pbin_ical);
-
-uint32_t zarafa_server_fetchfreebusyblocks(GUID hsession,
-	uint32_t hfbenum, uint32_t celt, FBBLOCK_ARRAY *pblocks);
-
-uint32_t zarafa_server_getfreebusyrange(GUID hsession,
-	uint32_t hfbdata, uint64_t *pnttime_start, uint64_t *pnttime_end);
-	
 uint32_t zarafa_server_messagetorfc822(GUID hsession,
 	uint32_t hmessage, BINARY *peml_bin);
 
@@ -330,5 +300,15 @@ uint32_t zarafa_server_messagetovcf(GUID hsession,
 
 uint32_t zarafa_server_vcftomessage(GUID hsession,
 	uint32_t hmessage, const BINARY *pvcf_bin);
+
+uint32_t zarafa_server_getuseravailability(GUID hsession,
+	BINARY entryid, uint64_t starttime, uint64_t endtime,
+	char **ppresult_string);
+
+uint32_t zarafa_server_setpasswd(const char *username,
+	const char *passwd, const char *new_passwd);
+
+uint32_t zarafa_server_linkmessage(GUID hsession,
+	BINARY search_entryid, BINARY message_entryid);
 
 #endif /* _H_ZARAFA_CLIENT_ */

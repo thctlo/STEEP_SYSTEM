@@ -3,6 +3,7 @@
 #include "mod_fastcgi.h"
 #include "http_parser.h"
 #include "list_file.h"
+#include "mail_func.h"
 #include "resource.h"
 #include "util.h"
 #include "ndr.h"
@@ -100,7 +101,9 @@ static FASTCGI_NODE* mod_fastcgi_find_backend(
 			continue;
 		}
 		tmp_len = strlen(pfnode->path);
-		if (0 != strncasecmp(uri_path, pfnode->path, tmp_len)) {
+		if (0 != strncasecmp(uri_path, pfnode->path,
+			tmp_len) || ('/' != uri_path[tmp_len] &&
+			'\0' != uri_path[tmp_len])) {
 			continue;
 		}
 		if ('\0' == file_name[0] && '\0' == suffix[0]) {
@@ -597,7 +600,7 @@ BOOL mod_fastcgi_get_context(HTTP_CONTEXT *phttp)
 			MEM_FILE_READ_PTR, 0, MEM_FILE_SEEK_BEGIN);
 	mem_file_read(&phttp->request.f_request_uri, tmp_buff, tmp_len);
 	tmp_buff[tmp_len] = '\0';
-	if (FALSE == http_parser_parse_uri(tmp_buff, request_uri)) {
+	if (FALSE == parse_uri(tmp_buff, request_uri)) {
 		http_parser_log_info(phttp, 8, "request"
 			" uri format error for mod_fastcgi");
 		return FALSE;
@@ -854,7 +857,7 @@ static BOOL mod_fastcgi_build_params(HTTP_CONTEXT *phttp,
 	if (NDR_ERR_SUCCESS != status) {
 		return FALSE;
 	}
-	if (FALSE == http_parser_parse_uri(tmp_buff, uri_path)) {
+	if (FALSE == parse_uri(tmp_buff, uri_path)) {
 		http_parser_log_info(phttp, 8, "request"
 			" uri format error for mod_fastcgi");
 		return FALSE;

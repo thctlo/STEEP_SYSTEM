@@ -136,8 +136,8 @@ BOOL SVC_LibMain(int reason, void** ppdata)
 				timeout);
 		}
 		
-		mysql_adaptor_init(conn_num, scan_interval, mysql_host, mysql_port,
-			mysql_user, mysql_passwd, db_name, timeout);
+		mysql_adaptor_init(conn_num, scan_interval, mysql_host,
+			mysql_port, mysql_user, mysql_passwd, db_name, timeout);
 
 		config_file_save(pfile);
 		config_file_free(pfile);
@@ -146,10 +146,17 @@ BOOL SVC_LibMain(int reason, void** ppdata)
 			printf("[mysql_adaptor]: fail to run mysql adaptor\n");
 			return FALSE;
 		}
-		if (FALSE == register_service("auth_login", mysql_adaptor_login)) {
+		if (FALSE == register_service("auth_login",
+			mysql_adaptor_login)) {
 			printf("[mysql_adaptor]: fail to register "
 							"\"auth_login\" service\n");
 			return FALSE;
+		}
+		if (FALSE == register_service("set_password",
+			mysql_adaptor_setpasswd)) {
+			printf("[mysql_adaptor]: fail to register"
+						" \"set_password\" service\n");
+			return FALSE;	
 		}
 		if (FALSE == register_service("get_username_from_id",
 			mysql_adaptor_get_username_from_id)) {
@@ -175,17 +182,35 @@ BOOL SVC_LibMain(int reason, void** ppdata)
 				" \"get_user_displayname\" service\n");
 			return FALSE;
 		}
+		if (FALSE == register_service("get_user_privilege_bits",
+			mysql_adaptor_get_user_privilege_bits)) {
+			printf("[mysql_adaptor]: fail to register "
+				"\"get_user_privilege_bits\" service\n");
+			return FALSE;
+		}
 		if (FALSE == register_service("get_user_lang",
 			mysql_adaptor_get_user_lang)) {
 			printf("[mysql_adaptor]: fail to register"
 						" \"get_user_lang\" service\n");
 			return FALSE;	
 		}
+		if (FALSE == register_service("set_user_lang",
+			mysql_adaptor_set_user_lang)) {
+			printf("[mysql_adaptor]: fail to register"
+						" \"set_user_lang\" service\n");
+			return FALSE;	
+		}
 		if (FALSE == register_service("get_timezone",
 			mysql_adaptor_get_timezone)) {
 			printf("[mysql_adaptor]: fail to register"
 						" \"get_timezone\" service\n");
-			return FALSE;	
+			return FALSE;
+		}
+		if (FALSE == register_service("set_timezone",
+			mysql_adaptor_set_timezone)) {
+			printf("[mysql_adaptor]: fail to register"
+						" \"set_timezone\" service\n");
+			return FALSE;
 		}
 		if (FALSE == register_service("get_maildir",
 			mysql_adaptor_get_maildir)) {

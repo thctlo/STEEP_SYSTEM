@@ -3,8 +3,10 @@
 #include "util.h"
 #include "mail_func.h"
 #include <ctype.h>
-#include <string.h>
 #include <stdio.h>
+#include <netdb.h>
+#include <string.h>
+#include <sys/socket.h> 
 
 
 
@@ -12,8 +14,10 @@
 
 typedef void (*SPAM_STATISTIC)(int);
 typedef BOOL (*CHECK_TAGGING)(const char*, MEM_FILE*);
+typedef BOOL (*CHECK_RETRYING)(const char*, const char*, MEM_FILE*);
 
 static SPAM_STATISTIC spam_statistic;
+static CHECK_RETRYING check_retrying;
 static CHECK_TAGGING check_tagging;
 
 DECLARE_API;
@@ -42,6 +46,12 @@ BOOL AS_LibMain(int reason, void **ppdata)
 		check_tagging = (CHECK_TAGGING)query_service("check_tagging");
 		if (NULL == check_tagging) {
 			printf("[property_031]: fail to get \"check_tagging\" service\n");
+			return FALSE;
+		}
+		check_retrying = (CHECK_RETRYING)query_service("check_retrying");
+		if (NULL == check_retrying) {
+			printf("[property_031]: fail to get"
+				" \"check_retrying\" service\n");
 			return FALSE;
 		}
 		spam_statistic = (SPAM_STATISTIC)query_service("spam_statistic");
@@ -82,30 +92,47 @@ static int head_filter(int context_ID, MAIL_ENTITY *pmail,
 	CONNECTION *pconnection, char *reason, int length)
 {
 	int out_len;
-	char buff[1024];
+	int h_errnop;
+	in_addr_t addr;
+	char buff[4096];
+	struct hostent hostinfo, *phost;
 
 	if (TRUE == pmail->penvelop->is_relay) {
+		return MESSAGE_ACCEPT;
+	}
+	if (NULL != pconnection->ssl) {
 		return MESSAGE_ACCEPT;
 	}
 	out_len = mem_file_read(&pmail->phead->f_mime_to, buff, 1024);
 	if (25 != out_len) {
 		return MESSAGE_ACCEPT;
 	}
-	if (0 == strncmp(buff, "undisclosed-recipients:;", 24)) {
-		if (TRUE == check_tagging(pmail->penvelop->from,
-			&pmail->penvelop->f_rcpt_to)) {
-			mark_context_spam(context_ID);
-			return MESSAGE_ACCEPT;
-		} else {
-			strncpy(reason, g_return_reason, length);
-			if (NULL != spam_statistic) {
-				spam_statistic(SPAM_STATISTIC_PROPERTY_031);
-			}
-		}
-		return MESSAGE_REJECT;
+	if (0 != strncasecmp(buff, "undisclosed-recipients:;", 24)) {
+		return MESSAGE_ACCEPT;
 	}
-
-	return MESSAGE_ACCEPT;
+	if (TRUE == check_tagging(pmail->penvelop->from,
+		&pmail->penvelop->f_rcpt_to)) {
+		mark_context_spam(context_ID);
+		return MESSAGE_ACCEPT;
+	}
+	if (FALSE == check_retrying(pconnection->client_ip,
+		pmail->penvelop->from, &pmail->penvelop->f_rcpt_to)) {
+		strncpy(reason, g_return_reason, length);
+		if (NULL!= spam_statistic) {
+			spam_statistic(SPAM_STATISTIC_PROPERTY_031);
+		}
+		return MESSAGE_RETRYING;
+	}
+	inet_pton(AF_INET, pconnection->client_ip, &addr);
+	if (0 == gethostbyaddr_r((char*)&addr, sizeof(addr),
+		AF_INET, &hostinfo, buff, sizeof(buff), &phost,
+		&h_errnop) && NULL != phost && NULL == extract_ip(
+		phost->h_name, buff)) {
+		return MESSAGE_ACCEPT;
+	}
+	strncpy(reason, g_return_reason, length);
+	if (NULL != spam_statistic) {
+		spam_statistic(SPAM_STATISTIC_PROPERTY_031);
+	}
+	return MESSAGE_REJECT;
 }
-
-

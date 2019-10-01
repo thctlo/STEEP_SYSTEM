@@ -3,7 +3,6 @@
 #include "restriction.h"
 #include "exmdb_client.h"
 #include "table_object.h"
-#include "rules_object.h"
 #include "sortorder_set.h"
 #include "folder_object.h"
 #include "sortorder_set.h"
@@ -65,7 +64,7 @@ BOOL table_object_check_to_load(TABLE_OBJECT *ptable)
 		STORE_TABLE == ptable->table_type) {
 		return TRUE;
 	} else if (USER_TABLE == ptable->table_type) {
-		return container_object_restrict_user_table(
+		return container_object_load_user_table(
 			ptable->pparent_obj, ptable->prestriction);
 	}
 	if (0 != ptable->table_id) {
@@ -131,8 +130,8 @@ BOOL table_object_check_to_load(TABLE_OBJECT *ptable)
 	case RULE_TABLE:
 		if (FALSE == exmdb_client_load_rule_table(
 			store_object_get_dir(ptable->pstore),
-			rules_object_get_folder_id(ptable->pparent_obj),
-			0, ptable->prestriction,
+			*(uint64_t*)ptable->pparent_obj, 0,
+			ptable->prestriction,
 			&table_id, &row_num)) {
 			return FALSE;
 		}
@@ -145,8 +144,7 @@ BOOL table_object_check_to_load(TABLE_OBJECT *ptable)
 void table_object_unload(TABLE_OBJECT *ptable)
 {
 	if (USER_TABLE == ptable->table_type) {
-		container_object_clear_restriction(
-						ptable->pparent_obj);
+		container_object_clear(ptable->pparent_obj);
 	} else {
 		table_object_set_table_id(ptable, 0);
 	}
@@ -300,10 +298,12 @@ static uint32_t table_object_get_folder_permission_rights(
 }
 
 BOOL table_object_query_rows(TABLE_OBJECT *ptable, BOOL b_forward,
-	const PROPTAG_ARRAY *pcolumns, uint16_t row_count, TARRAY_SET *pset)
+	const PROPTAG_ARRAY *pcolumns, uint32_t row_count, TARRAY_SET *pset)
 {
 	int i, j;
+	void *pvalue;
 	uint32_t handle;
+	uint32_t row_num;
 	uint32_t end_pos;
 	USER_INFO *pinfo;
 	BINARY *pentryid;
@@ -339,10 +339,13 @@ BOOL table_object_query_rows(TABLE_OBJECT *ptable, BOOL b_forward,
 		pset->count = 0;
 		return TRUE;
 	}
-	if (ptable->position >= table_object_get_total(
-		ptable) && TRUE == b_forward) {
+	row_num = table_object_get_total(ptable);
+	if (ptable->position >= row_num && TRUE == b_forward) {
 		pset->count = 0;
 		return TRUE;
+	}
+	if (row_count > row_num) {
+		row_count = row_num;
 	}
 	if (TRUE == b_forward) {
 		row_needed = row_count;
@@ -360,17 +363,17 @@ BOOL table_object_query_rows(TABLE_OBJECT *ptable, BOOL b_forward,
 		}
 		if (TRUE == b_forward) {
 			if (ptable->position + row_needed > rcpt_set.count) {
-				end_pos = rcpt_set.count - 1;
+				end_pos = rcpt_set.count;
 			} else {
-				end_pos = ptable->position + row_needed - 1;
+				end_pos = ptable->position + row_needed;
 			}
 			pset->count = 0;
 			pset->pparray = common_util_alloc(sizeof(void*)
-						*(end_pos - ptable->position + 1));
+							*(end_pos - ptable->position));
 			if (NULL == pset->pparray) {
 				return FALSE;
 			}
-			for (i=ptable->position; i<=end_pos; i++) {
+			for (i=ptable->position; i<end_pos; i++) {
 				pset->pparray[pset->count] = rcpt_set.pparray[i];
 				pset->count ++;
 			}
@@ -390,6 +393,46 @@ BOOL table_object_query_rows(TABLE_OBJECT *ptable, BOOL b_forward,
 				pset->pparray[pset->count] = rcpt_set.pparray[i];
 				pset->count ++;
 			}
+		}
+		if (common_util_index_proptags(pcolumns, PROP_TAG_ENTRYID) < 0) {
+			return TRUE;	
+		}
+		for (i=0; i<pset->count; i++) {
+			if (NULL != common_util_get_propvals(
+				pset->pparray[i], PROP_TAG_ENTRYID)) {
+				continue;
+			}
+			pvalue = common_util_get_propvals(
+				pset->pparray[i], PROP_TAG_ADDRESSTYPE);
+			if (NULL == pvalue || 0 != strcasecmp(pvalue, "EX")) {
+				continue;
+			}
+			pvalue = common_util_get_propvals(
+				pset->pparray[i], PROP_TAG_EMAILADDRESS);
+			if (NULL == pvalue) {
+				continue;
+			}
+			pentryid = common_util_alloc(sizeof(BINARY));
+			if (NULL == pentryid) {
+				return FALSE;
+			}
+			if (FALSE == common_util_essdn_to_entryid(
+				pvalue, pentryid)) {
+				return FALSE;	
+			}
+			pvalue = common_util_alloc(sizeof(TAGGED_PROPVAL)
+							*(pset->pparray[i]->count + 1));
+			if (NULL == pvalue) {
+				return FALSE;
+			}
+			memcpy(pvalue, pset->pparray[i]->ppropval,
+				sizeof(TAGGED_PROPVAL)*pset->pparray[i]->count);
+			pset->pparray[i]->ppropval = pvalue;
+			pset->pparray[i]->ppropval[pset->pparray[i]->count].proptag =
+														PROP_TAG_ENTRYID;
+			pset->pparray[i]->ppropval[pset->pparray[i]->count].pvalue =
+																pentryid;
+			pset->pparray[i]->count ++;
 		}
 		return TRUE;
 	} else if (CONTAINER_TABLE == ptable->table_type) {
@@ -831,7 +874,6 @@ uint32_t table_object_get_total(TABLE_OBJECT *ptable)
 TABLE_OBJECT* table_object_create(STORE_OBJECT *pstore,
 	void *pparent_obj, uint8_t table_type, uint32_t table_flags)
 {
-	TARRAY_SET rcpt_set;
 	TABLE_OBJECT *ptable;
 	
 	ptable = malloc(sizeof(TABLE_OBJECT));
@@ -839,7 +881,16 @@ TABLE_OBJECT* table_object_create(STORE_OBJECT *pstore,
 		return NULL;
 	}
 	ptable->pstore = pstore;
-	ptable->pparent_obj = pparent_obj;
+	if (RULE_TABLE == table_type) {
+		ptable->pparent_obj = malloc(sizeof(uint64_t));
+		if (NULL == ptable->pparent_obj) {
+			free(ptable);
+			return NULL;
+		}
+		*(uint64_t*)ptable->pparent_obj = *(uint64_t*)pparent_obj;
+	} else {
+		ptable->pparent_obj = pparent_obj;
+	}
 	ptable->table_type = table_type;
 	ptable->table_flags = table_flags;
 	ptable->pcolumns = NULL;
@@ -856,6 +907,9 @@ void table_object_free(TABLE_OBJECT *ptable)
 {
 	table_object_reset(ptable);
 	double_list_free(&ptable->bookmark_list);
+	if (RULE_TABLE == ptable->table_type) {
+		free(ptable->pparent_obj);
+	}
 	free(ptable);
 }
 
@@ -984,6 +1038,259 @@ void table_object_reset(TABLE_OBJECT *ptable)
 	ptable->position = 0;
 	table_object_set_table_id(ptable, 0);
 	table_object_clear_bookmarks(ptable);
+}
+
+static BOOL table_object_evaluate_restriction(
+	const TPROPVAL_ARRAY *ppropvals, const RESTRICTION *pres)
+{
+	int i;
+	int len;
+	void *pvalue;
+	void *pvalue1;
+	uint32_t val_size;
+	
+	switch (pres->rt) {
+	case RESTRICTION_TYPE_OR:
+		for (i=0; i<((RESTRICTION_AND_OR*)pres->pres)->count; i++) {
+			if (TRUE == table_object_evaluate_restriction(ppropvals,
+				((RESTRICTION_AND_OR*)pres->pres)->pres + i)) {
+				return TRUE;
+			}
+		}
+		return FALSE;
+	case RESTRICTION_TYPE_AND:
+		for (i=0; i<((RESTRICTION_AND_OR*)pres->pres)->count; i++) {
+			if (FALSE == table_object_evaluate_restriction(ppropvals,
+				((RESTRICTION_AND_OR*)pres->pres)->pres + i)) {
+				return FALSE;
+			}
+		}
+		return TRUE;
+	case RESTRICTION_TYPE_NOT:
+		if (TRUE == table_object_evaluate_restriction(ppropvals,
+			&((RESTRICTION_NOT*)pres->pres)->res)) {
+			return FALSE;
+		}
+		return TRUE;
+	case RESTRICTION_TYPE_CONTENT:
+		if (PROPVAL_TYPE_WSTRING != (((RESTRICTION_CONTENT*)
+			pres->pres)->proptag & 0xFFFF)) {
+			return FALSE;
+		}
+		if ((((RESTRICTION_CONTENT*)pres->pres)->proptag & 0xFFFF) !=
+			(((RESTRICTION_CONTENT*)pres->pres)->propval.proptag & 0xFFFF)) {
+			return FALSE;
+		}
+		pvalue = common_util_get_propvals(ppropvals,
+			((RESTRICTION_CONTENT*)pres->pres)->proptag);
+		if (NULL == pvalue) {
+			return FALSE;
+		}
+		switch (((RESTRICTION_CONTENT*)pres->pres)->fuzzy_level & 0xFFFF) {
+		case FUZZY_LEVEL_FULLSTRING:
+			if (((RESTRICTION_CONTENT*)pres->pres)->fuzzy_level &
+				(FUZZY_LEVEL_IGNORECASE|FUZZY_LEVEL_LOOSE)) {
+				if (0 == strcasecmp(((RESTRICTION_CONTENT*)
+					pres->pres)->propval.pvalue, pvalue)) {
+					return TRUE;
+				}
+				return FALSE;
+			} else {
+				if (0 == strcmp(((RESTRICTION_CONTENT*)
+					pres->pres)->propval.pvalue, pvalue)) {
+					return TRUE;
+				}
+				return FALSE;
+			}
+			return FALSE;
+		case FUZZY_LEVEL_SUBSTRING:
+			if (((RESTRICTION_CONTENT*)pres->pres)->fuzzy_level & 
+				(FUZZY_LEVEL_IGNORECASE|FUZZY_LEVEL_LOOSE)) {
+				if (NULL != strcasestr(pvalue, ((RESTRICTION_CONTENT*)
+					pres->pres)->propval.pvalue)) {
+					return TRUE;
+				}
+				return FALSE;
+			} else {
+				if (NULL != strstr(pvalue, ((RESTRICTION_CONTENT*)
+					pres->pres)->propval.pvalue)) {
+					return TRUE;
+				}
+			}
+			return FALSE;
+		case FUZZY_LEVEL_PREFIX:
+			len = strlen(((RESTRICTION_CONTENT*)pres->pres)->propval.pvalue);
+			if (((RESTRICTION_CONTENT*)pres->pres)->fuzzy_level &
+				(FUZZY_LEVEL_IGNORECASE|FUZZY_LEVEL_LOOSE)) {
+				if (0 == strncasecmp(pvalue, ((RESTRICTION_CONTENT*)
+					pres->pres)->propval.pvalue, len)) {
+					return TRUE;
+				}
+				return FALSE;
+			} else {
+				if (0 == strncmp(pvalue, ((RESTRICTION_CONTENT*)
+					pres->pres)->propval.pvalue, len)) {
+					return TRUE;
+				}
+				return FALSE;
+			}
+			return FALSE;
+		}
+		return FALSE;
+	case RESTRICTION_TYPE_PROPERTY:
+		pvalue = common_util_get_propvals(ppropvals,
+			((RESTRICTION_PROPERTY*)pres->pres)->proptag);
+		if (NULL == pvalue) {
+			return FALSE;
+		}
+		if (PROP_TAG_ANR == ((RESTRICTION_PROPERTY*)pres->pres)->proptag) {
+			if ((((RESTRICTION_PROPERTY*)pres->pres)->propval.proptag
+				& 0xFFFF) != PROPVAL_TYPE_WSTRING) {
+				return FALSE;
+			}
+			if (NULL != strcasestr(((RESTRICTION_PROPERTY*)
+				pres->pres)->propval.pvalue, pvalue)) {
+				return TRUE;
+			}
+			return FALSE;
+		}
+		return propval_compare_relop(
+				((RESTRICTION_PROPERTY*)pres->pres)->relop,
+				((RESTRICTION_PROPERTY*)pres->pres)->proptag&0xFFFF,
+				pvalue, ((RESTRICTION_PROPERTY*)pres->pres)->propval.pvalue);
+	case RESTRICTION_TYPE_PROPCOMPARE:
+		if ((((RESTRICTION_PROPCOMPARE*)pres->pres)->proptag1&0xFFFF) !=
+			(((RESTRICTION_PROPCOMPARE*)pres->pres)->proptag2&0xFFFF)) {
+			return FALSE;
+		}
+		pvalue = common_util_get_propvals(ppropvals,
+			((RESTRICTION_PROPCOMPARE*)pres->pres)->proptag1);
+		if (NULL == pvalue) {
+			return FALSE;
+		}
+		pvalue1 = common_util_get_propvals(ppropvals,
+			((RESTRICTION_PROPCOMPARE*)pres->pres)->proptag2);
+		if (NULL == pvalue1) {
+			return FALSE;
+		}
+		return propval_compare_relop(
+				((RESTRICTION_PROPCOMPARE*)pres->pres)->relop,
+				((RESTRICTION_PROPCOMPARE*)pres->pres)->proptag1&0xFFFF,
+				pvalue, pvalue1);
+	case RESTRICTION_TYPE_BITMASK:
+		if (PROPVAL_TYPE_LONG != (((RESTRICTION_BITMASK*)
+			pres->pres)->proptag & 0xFFFF)) {
+			return FALSE;
+		}
+		pvalue = common_util_get_propvals(ppropvals,
+			((RESTRICTION_BITMASK*)pres->pres)->proptag);
+		if (NULL == pvalue) {
+			return FALSE;
+		}
+		switch (((RESTRICTION_BITMASK*)pres->pres)->bitmask_relop) {
+		case BITMASK_RELOP_EQZ:
+			if (0 == (*(uint32_t*)pvalue &
+				((RESTRICTION_BITMASK*)pres->pres)->mask)) {
+				return TRUE;
+			}
+			break;
+		case BITMASK_RELOP_NEZ:
+			if (*(uint32_t*)pvalue &
+				((RESTRICTION_BITMASK*)pres->pres)->mask) {
+				return TRUE;
+			}
+			break;
+		}	
+		return FALSE;
+	case RESTRICTION_TYPE_SIZE:
+		pvalue = common_util_get_propvals(ppropvals,
+			((RESTRICTION_SIZE*)pres->pres)->proptag);
+		if (NULL == pvalue) {
+			return FALSE;
+		}
+		val_size = propval_size(((RESTRICTION_SIZE*)
+					pres->pres)->proptag, pvalue);
+		return propval_compare_relop(((RESTRICTION_SIZE*)
+				pres->pres)->relop, PROPVAL_TYPE_LONG, &val_size,
+				&((RESTRICTION_SIZE*)pres->pres)->size);
+	case RESTRICTION_TYPE_EXIST:
+		pvalue = common_util_get_propvals(ppropvals,
+			((RESTRICTION_EXIST*)pres->pres)->proptag);
+		if (NULL == pvalue) {
+			return FALSE;
+		}
+		return TRUE;
+	case RESTRICTION_TYPE_SUBOBJ:
+		return FALSE;
+	case RESTRICTION_TYPE_COMMENT:
+		if (NULL == ((RESTRICTION_COMMENT*)pres->pres)->pres) {
+			return TRUE;
+		}
+		return table_object_evaluate_restriction(ppropvals,
+				((RESTRICTION_COMMENT*)pres->pres)->pres);
+	case RESTRICTION_TYPE_COUNT:
+		return FALSE;
+	}	
+	return FALSE;
+}
+
+BOOL table_object_filter_rows(TABLE_OBJECT *ptable,
+	uint32_t count, const RESTRICTION *pres,
+	const PROPTAG_ARRAY *pcolumns, TARRAY_SET *pset)
+{
+	int i;
+	TARRAY_SET tmp_set;
+	uint32_t tmp_proptag;
+	PROPTAG_ARRAY proptags;
+	PROPTAG_ARRAY tmp_proptags;
+	
+	switch (ptable->table_type) {
+	case ATTACHMENT_TABLE:
+		if (FALSE == message_object_get_attachment_table_all_proptags(
+			ptable->pparent_obj, &proptags)) {
+			return FALSE;	
+		}
+		tmp_proptag = PROP_TAG_ATTACHDATABINARY;
+		tmp_proptags.count = 1;
+		tmp_proptags.pproptag = &tmp_proptag;
+		common_util_reduce_proptags(&proptags, &tmp_proptags);
+		if (FALSE == message_object_query_attachment_table(
+			ptable->pparent_obj, &proptags, ptable->position,
+			0x7FFFFFFF, &tmp_set)) {
+			return FALSE;	
+		}
+		break;
+	case RECIPIENT_TABLE:
+		if (FALSE == message_object_read_recipients(
+			ptable->pparent_obj, 0, 0xFFFF, &tmp_set)) {
+			return FALSE;	
+		}
+		break;
+	case USER_TABLE:
+		container_object_get_user_table_all_proptags(&proptags);
+		if (FALSE == container_object_query_user_table(
+			ptable->pparent_obj, &proptags, ptable->position,
+			0x7FFFFFFF, &tmp_set)) {
+			return FALSE;	
+		}
+		break;
+	default:
+		return FALSE;	
+	}
+	pset->count = 0;
+	pset->pparray = common_util_alloc(sizeof(void*)*tmp_set.count);
+	if (NULL == pset->pparray) {
+		return FALSE;
+	}
+	for (i=0; i<tmp_set.count&&pset->count<count; i++) {
+		if (FALSE == table_object_evaluate_restriction(
+			tmp_set.pparray[i], pres)) {
+			continue;	
+		}
+		pset->pparray[pset->count] = tmp_set.pparray[i];
+		pset->count ++;
+	}
+	return TRUE;
 }
 
 BOOL table_object_match_row(TABLE_OBJECT *ptable,

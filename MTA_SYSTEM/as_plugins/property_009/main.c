@@ -7,7 +7,9 @@
 #define SPAM_STATISTIC_PROPERTY_009        33
 
 typedef void (*SPAM_STATISTIC)(int);
+typedef BOOL (*WHITELIST_QUERY)(char*);
 typedef BOOL (*CHECK_TAGGING)(const char*, MEM_FILE*);
+
 
 static int mail_boundary(int context_ID, MAIL_ENTITY *pmail,
     CONNECTION *pconnection, char *reason, int length);
@@ -16,6 +18,7 @@ DECLARE_API;
 
 static SPAM_STATISTIC spam_statistic;
 static CHECK_TAGGING check_tagging;
+static WHITELIST_QUERY domain_whitelist_query;
 
 static char g_return_string[1024];
 
@@ -32,6 +35,13 @@ BOOL AS_LibMain(int reason, void **ppdata)
 		check_tagging = (CHECK_TAGGING)query_service("check_tagging");
 		if (NULL == check_tagging) {
 			printf("[property_009]: fail to get \"check_tagging\" service\n");
+			return FALSE;
+		}
+		domain_whitelist_query = (WHITELIST_QUERY)
+			query_service("domain_whitelist_query");
+		if (NULL == domain_whitelist_query) {
+			printf("[property_009]: fail to get "
+				"\"domain_whitelist_query\" service\n");
 			return FALSE;
 		}
 		spam_statistic = (SPAM_STATISTIC)query_service("spam_statistic");
@@ -71,32 +81,18 @@ static int mail_boundary(int context_ID, MAIL_ENTITY *pmail,
 {
 	int i;
 	char *ptr;
-	int tag_len;
-	int val_len;
 	int tmp_len;
+	char *pdomain;
 	char buff[1024];
 	
 	if (TRUE == pmail->penvelop->is_outbound ||
 		TRUE == pmail->penvelop->is_relay) {
 		return MESSAGE_ACCEPT;
 	}
-	if (mem_file_get_total_length(&pmail->phead->f_xmailer) > 0) {
+	pdomain = strchr(pmail->penvelop->from, '@');
+	pdomain ++;
+	if (TRUE == domain_whitelist_query(pdomain)) {
 		return MESSAGE_ACCEPT;
-	}
-	while (MEM_END_OF_FILE != mem_file_read(
-		&pmail->phead->f_others, &tag_len, sizeof(int))) {
-		if (8 == tag_len) {
-			mem_file_read(&pmail->phead->f_others, buff, tag_len);
-			if (0 == strncasecmp("Received", buff, 8)) {
-				return MESSAGE_ACCEPT;
-			}
-		} else {
-			mem_file_seek(&pmail->phead->f_others,
-				MEM_FILE_READ_PTR, tag_len, MEM_FILE_SEEK_CUR);
-		}
-		mem_file_read(&pmail->phead->f_others, &val_len, sizeof(int));
-		mem_file_seek(&pmail->phead->f_others,
-			MEM_FILE_READ_PTR, val_len, MEM_FILE_SEEK_CUR);
 	}
 	tmp_len = mem_file_read(&pmail->phead->f_content_type, buff, 1024);
 	if (MEM_END_OF_FILE == tmp_len) {   /* no content type */
@@ -107,9 +103,7 @@ static int mail_boundary(int context_ID, MAIL_ENTITY *pmail,
 		return MESSAGE_ACCEPT;
 	}
 	ptr += 10;
-	if ('"' == ptr[28]) {
-		tmp_len = 28;
-	} else if ('"' == ptr[32]) {
+	if ('"' == ptr[32]) {
 		tmp_len = 32;
 	} else {
 		return MESSAGE_ACCEPT;

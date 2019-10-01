@@ -200,16 +200,22 @@ void info_ui_free()
 static BOOL info_ui_get_self(char *url_buff, int length)
 {
 	char *host;
+	char *https;
 	char *script;
 	
 	host = getenv("HTTP_HOST");
 	script = getenv("SCRIPT_NAME");
+	https = getenv("HTTPS");
 	if (NULL == host || NULL == script) {
-		system_log_info("[info_ui]: fail to get HTTP_HOST or "
-			"SCRIPT_NAME environment!");
+		system_log_info("[info_ui]: fail to get "
+			"HTTP_HOST or SCRIPT_NAME environment!");
 		return FALSE;
 	}
-	snprintf(url_buff, length, "http://%s%s", host, script);
+	if (NULL == https || 0 != strcasecmp(https, "ON")) {
+		snprintf(url_buff, length, "http://%s%s", host, script);
+	} else {
+		snprintf(url_buff, length, "https://%s%s", host, script);
+	}
 	return TRUE;
 }
 
@@ -260,7 +266,7 @@ static void info_ui_main_html(const char *session)
 	int real_addresses;
 	int alias_addresses;
 	int total_mlists;
-	int total_space;
+	long total_space;
 	
 	language = getenv("HTTP_ACCEPT_LANGUAGE");
 
@@ -278,7 +284,10 @@ static void info_ui_main_html(const char *session)
 			language));
 		return;
 	}
-	if (total_space >= 1024) {
+	if (total_space >= 1024*1024) {
+		total_space /= 1024*1024;
+		space_unit = 'T';
+	} else if (total_space >= 1024) {
 		total_space /= 1024;
 		space_unit = 'G';
 	} else {

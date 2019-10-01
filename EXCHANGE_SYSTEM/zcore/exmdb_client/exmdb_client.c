@@ -534,10 +534,6 @@ int exmdb_client_run()
 			g_notify_stop = TRUE;
 			return 2;
 		}
-		if (TRUE == b_private && FALSE ==
-			common_util_check_local_ip(pitem[i].ip_addr)) {
-			continue;	
-		}
 		pserver = malloc(sizeof(REMOTE_SVR));
 		if (NULL == pserver) {
 			printf("[exmdb_client]: fail to allocate memory for exmdb\n");
@@ -3079,6 +3075,25 @@ BOOL exmdb_client_check_contact_address(const char *dir,
 		return FALSE;
 	}
 	*pb_found = response.payload.check_contact_address.b_found;
+	return TRUE;
+}
+
+BOOL exmdb_client_get_public_folder_unread_count(const char *dir,
+	const char *username, uint64_t folder_id, uint32_t *pcount)
+{
+	EXMDB_REQUEST request;
+	EXMDB_RESPONSE response;
+	
+	request.call_id = CALL_ID_GET_PUBLIC_FOLDER_UNREAD_COUNT;
+	request.dir = (void*)dir;
+	request.payload.get_public_folder_unread_count.username =
+											(void*)username;
+	request.payload.get_public_folder_unread_count.folder_id =
+													folder_id;
+	if (FALSE == exmdb_client_do_rpc(dir, &request, &response)) {
+		return FALSE;
+	}
+	*pcount = response.payload.get_public_folder_unread_count.count;
 	return TRUE;
 }
 

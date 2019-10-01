@@ -14,7 +14,6 @@
 #define CALL_ID_OPENSTOREENTRY						0x03
 #define CALL_ID_OPENABENTRY							0x04
 #define CALL_ID_RESOLVENAME							0x05
-#define CALL_ID_OPENRULES							0x06
 #define CALL_ID_GETPERMISSIONS						0x07
 #define CALL_ID_MODIFYPERMISSIONS					0x08
 #define CALL_ID_MODIFYRULES							0x09
@@ -82,22 +81,17 @@
 #define CALL_ID_IMPORTREADSTATES					0x48
 #define CALL_ID_GETSEARCHCRITERIA					0x49
 #define CALL_ID_SETSEARCHCRITERIA					0x4a
-#define CALL_ID_OPENFREEBUSYDATA					0x4b
-#define CALL_ID_ENUMFREEBUSYBLOCKS					0x4c
-#define CALL_ID_FBENUMRESET							0x4d
-#define CALL_ID_FBENUMSKIP							0x4e
-#define CALL_ID_FBENUMRESTRICT						0x4f
-#define CALL_ID_FBENUMEXPORT						0x50
-#define CALL_ID_FETCHFREEBUSYBLOCKS					0x51
-#define CALL_ID_GETFREEBUSYRANGE					0x52
-#define CALL_ID_MESSAGETORFC822						0x53
-#define CALL_ID_RFC822TOMESSAGE						0x54
-#define CALL_ID_MESSAGETOICAL						0x55
-#define CALL_ID_ICALTOMESSAGE						0x56
-#define CALL_ID_MESSAGETOVCF						0x57
-#define CALL_ID_VCFTOMESSAGE						0x58
-#define CALL_ID_UINFO								0x59
-#define CALL_ID_CHECKSESSION						0x60
+#define CALL_ID_MESSAGETORFC822						0x4b
+#define CALL_ID_RFC822TOMESSAGE						0x4c
+#define CALL_ID_MESSAGETOICAL						0x4d
+#define CALL_ID_ICALTOMESSAGE						0x4e
+#define CALL_ID_MESSAGETOVCF						0x4f
+#define CALL_ID_VCFTOMESSAGE						0x50
+#define CALL_ID_UINFO								0x51
+#define CALL_ID_CHECKSESSION						0x52
+#define CALL_ID_GETUSERAVAILABILITY					0x53
+#define CALL_ID_SETPASSWD							0x54
+#define CALL_ID_LINKMESSAGE							0x55
 
 /* ---------------------- defined by zarafa ---------------------- */
 
@@ -178,17 +172,14 @@ typedef struct _NOTIF_SINK {
 #define MAPI_ATTACHMENT								3
 #define MAPI_ABCONT									4
 #define MAPI_FOLDER									5
-#define MAPI_RULES									6
-#define MAPI_SESSION								7
-#define MAPI_STORE									9
-#define MAPI_MAILUSER								10
-#define MAPI_DISTLIST								11
-#define MAPI_PROFPROPERTY							12
-#define MAPI_FBDATA									13
-#define MAPI_FBUPDATE								14
-#define MAPI_FBENUMBLOCK							15
-#define MAPI_ICSDOWNCTX								17
-#define MAPI_ICSUPCTX								18
+#define MAPI_SESSION								6
+#define MAPI_ADDRESSBOOK							7
+#define MAPI_STORE									8
+#define MAPI_MAILUSER								9
+#define MAPI_DISTLIST								10
+#define MAPI_PROFPROPERTY							11
+#define MAPI_ICSDOWNCTX								13
+#define MAPI_ICSUPCTX								14
 #define MAPI_INVALID								255
 
 typedef struct _NEWMAIL_ZNOTIFICATION {
@@ -241,22 +232,6 @@ typedef struct _RULE_LIST {
 	uint16_t count;
 	RULE_DATA *prule;
 } RULE_LIST;
-
-#define FREEBUSY_STATUS_FREE						0
-#define FREEBUSY_STATUS_TENTATIVE					1
-#define FREEBUSY_STATUS_BUSY						2
-#define FREEBUSY_STATUS_OOF							3
-
-typedef struct _FREEBUSY_BLOCK {
-	uint64_t nttime_start;
-	uint64_t nttime_end;
-	uint8_t status;
-} FREEBUSY_BLOCK;
-
-typedef struct _FBBLOCK_ARRAY {
-	uint32_t count;
-	FREEBUSY_BLOCK *pblocks;
-} FBBLOCK_ARRAY;
 
 #define SYNC_NEW_MESSAGE							0x800
 #define SYNC_SOFT_DELETE							0x01
@@ -336,6 +311,11 @@ typedef struct _STATE_ARRAY {
 #define NOTIFY_RECEIPT_READ							1
 #define NOTIFY_RECEIPT_NON_READ						2
 
+#define LOC_TYPE_PRIVATE_FOLDER						1
+#define LOC_TYPE_PUBLIC_FOLDER						2
+#define LOC_TYPE_PRIVATE_MESSAGE					3
+#define LOC_TYPE_PUBLIC_MESSAGE						4
+
 enum {
 	COMMON_UTIL_MAX_RCPT,
 	COMMON_UTIL_MAX_MESSAGE,
@@ -343,10 +323,32 @@ enum {
 	COMMON_UTIL_MAX_EXTRULE_LENGTH
 };
 
+enum {
+	RES_ID_IPM,
+	RES_ID_INBOX,
+	RES_ID_DRAFT,
+	RES_ID_OUTBOX,
+	RES_ID_SENT,
+	RES_ID_DELETED,
+	RES_ID_CONTACTS,
+	RES_ID_CALENDAR,
+	RES_ID_JOURNAL,
+	RES_ID_NOTES,
+	RES_ID_TASKS,
+	RES_ID_JUNK,
+	RES_ID_SYNC,
+	RES_ID_CONFLICT,
+	RES_ID_LOCAL,
+	RES_ID_SERVER,
+	RES_TOTAL_NUM
+};
+
 void common_util_init(const char *org_name, const char *hostname,
 	const char *default_charset, const char *default_zone, int mime_num,
 	int max_rcpt, int max_message, unsigned int max_mail_len,
-	unsigned int max_rule_len, const char *smtp_ip, int smtp_port);
+	unsigned int max_rule_len, const char *smtp_ip, int smtp_port,
+	const char *freebusy_path, const char *langmap_path,
+	const char *folderlang_path, const char *submit_command);
 
 int common_util_run();
 
@@ -359,6 +361,8 @@ unsigned int common_util_get_param(int param);
 void common_util_set_param(int param, unsigned int value);
 
 const char* common_util_get_hostname();
+
+const char* common_util_get_freebusy_path();
 
 BOOL common_util_verify_columns_and_sorts(
 	const PROPTAG_ARRAY *pcolumns,
@@ -400,8 +404,19 @@ BOOL common_util_essdn_to_username(const char *pessdn, char *username);
 
 BOOL common_util_essdn_to_uid(const char *pessdn, int *puid);
 
+BOOL common_util_essdn_to_ids(const char *pessdn,
+	int *pdomain_id, int *puser_id);
+
+BOOL common_util_entryid_to_username(
+	const BINARY *pbin, char *username);
+
 BINARY* common_util_username_to_addressbook_entryid(
 	const char *username);
+
+BOOL common_util_essdn_to_entryid(const char *essdn, BINARY *pbin);
+
+BOOL common_util_username_to_entryid(const char *username,
+	const char *pdisplay_name, BINARY *pbin, int *paddress_type);
 
 BINARY* common_util_public_to_addressbook_entryid(const char *domainname);
 
@@ -410,6 +425,14 @@ BOOL common_util_username_to_essdn(const char *username, char *pessdn);
 BOOL common_util_essdn_to_public(const char *pessdn, char *domainname);
 
 BOOL common_util_public_to_essdn(const char *username, char *pessdn);
+
+void common_util_exmdb_locinfo_to_string(
+	uint8_t type, int db_id, uint64_t eid,
+	char *loc_string);
+
+BOOL common_util_exmdb_locinfo_from_string(
+	const char *loc_string, uint8_t *ptype,
+	int *pdb_id, uint64_t *peid);
 
 BOOL common_util_build_environment();
 
@@ -506,6 +529,8 @@ BOOL common_util_remote_copy_folder(
 	
 uint8_t* common_util_get_muidecsab();
 
+uint8_t* common_util_get_muidzcsab();
+
 uint64_t common_util_convert_notification_folder_id(uint64_t folder_id);
 
 BOOL common_util_send_message(STORE_OBJECT *pstore,
@@ -532,5 +557,15 @@ MESSAGE_CONTENT* common_util_vcf_to_message(
 uint64_t common_util_tm_to_nttime(struct tm unix_tm);
 
 BOOL common_util_nttime_to_tm(uint64_t nt_time, struct tm *ptm);
+
+const char* common_util_lang_to_i18n(const char *lang);
+
+const char* common_util_i18n_to_lang(const char *i18n);
+
+const char* common_util_get_default_timezone();
+
+const char* common_util_get_submit_command();
+
+void common_util_get_folder_lang(const char *lang, char **ppfolder_lang);
 
 #endif /* _H_COMMON_UTIL_ */

@@ -401,9 +401,15 @@ char* common_util_convert_copy(BOOL to_utf8,
 	}
 	if (TRUE == to_utf8) {
 		conv_id = iconv_open("UTF-8//IGNORE", charset);
+		if ((iconv_t)-1 == conv_id) {
+			conv_id = iconv_open("UTF-8//IGNORE", "windows-1252");
+		}
 	} else {
 		sprintf(temp_charset, "%s//IGNORE", charset);
 		conv_id = iconv_open(temp_charset, "UTF-8");
+		if ((iconv_t)-1 == conv_id) {
+			conv_id = iconv_open("windows-1252//IGNORE", "UTF-8");
+		}
 	}
 	pin = (char*)pstring;
 	pout = pstr_out;
@@ -1277,7 +1283,7 @@ static uint32_t common_util_get_folder_count(sqlite3 *psqlite,
 	return count;
 }
 
-static uint32_t common_util_get_folder_unread_count(
+uint32_t common_util_get_folder_unread_count(
 	sqlite3 *psqlite, uint64_t folder_id)
 {
 	int sql_len;

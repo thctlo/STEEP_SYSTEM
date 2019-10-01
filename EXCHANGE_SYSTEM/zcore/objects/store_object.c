@@ -35,9 +35,8 @@
 #define PROP_TAG_OOFEXTERNALREPLY						0x6767001F
 #define PROP_TAG_OOFEXTERNALSUBJECT						0x6768001F
 
-#define OOF_STATE_DISABLED								0x00000000
-#define OOF_STATE_ENABLED								0x00000001
-#define OOF_STATE_SCHEDULED								0x00000002
+#define PROP_TAG_ECUSERLANGUAGE							0x6770001F
+#define PROP_TAG_ECUSERTIMEZONE							0x6771001F
 
 static BOOL store_object_enlarge_propid_hash(STORE_OBJECT *pstore)
 {
@@ -603,6 +602,7 @@ static BOOL store_object_check_readonly_property(
 	case PROP_TAG_EXTENDEDRULESIZELIMIT:
 	case PROP_TAG_INTERNETARTICLENUMBER:
 	case PROP_TAG_LOCALEID:
+	case PROP_TAG_MAPPINGSIGNATURE:
 	case PROP_TAG_MAXIMUMSUBMITMESSAGESIZE:
 	case PROP_TAG_MAILBOXOWNERENTRYID:
 	case PROP_TAG_MAILBOXOWNERNAME:
@@ -785,6 +785,9 @@ BOOL store_object_get_all_proptags(STORE_OBJECT *pstore,
 					PROP_TAG_STORERECORDKEY;
 	pproptags->count ++;
 	pproptags->pproptag[pproptags->count] =
+				PROP_TAG_MAPPINGSIGNATURE;
+	pproptags->count ++;
+	pproptags->pproptag[pproptags->count] =
 							PROP_TAG_ENTRYID;
 	pproptags->count ++;
 	pproptags->pproptag[pproptags->count] =
@@ -808,49 +811,39 @@ static void* store_object_get_oof_property(
 	char *ptoken;
 	int buff_len;
 	void *pvalue;
-	struct tm dtm;
-	struct tm ttm;
 	char *str_value;
-	struct tm unix_tm;
 	int parsed_length;
-	char time_buff[64];
-	char date_buff[64];
 	char subject[1024];
 	char temp_path[256];
 	CONFIG_FILE *pconfig;
 	MIME_FIELD mime_field;
 	struct stat node_stat;
+	static uint8_t fake_true = 1;
+	static uint8_t fake_false = 0;
 	
-	pvalue = NULL;
-	sprintf(temp_path, "%s/config/autoreply.cfg", maildir);
-	pconfig = config_file_init(temp_path);
 	switch (proptag) {
 	case PROP_TAG_OOFSTATE:
 		pvalue = common_util_alloc(sizeof(uint32_t));
 		if (NULL == pvalue) {
-			break;
+			return NULL;
 		}
+		sprintf(temp_path, "%s/config/autoreply.cfg", maildir);
+		pconfig = config_file_init(temp_path);
 		if (NULL == pconfig) {
-			*(uint32_t*)pvalue = OOF_STATE_DISABLED;
+			*(uint32_t*)pvalue = 0;
 		} else {
-			str_value = config_file_get_value(pconfig, "REPLY_SWITCH");
+			str_value = config_file_get_value(pconfig, "OOF_STATE");
 			if (NULL == str_value) {
-				*(uint32_t*)pvalue = OOF_STATE_DISABLED;
+				*(uint32_t*)pvalue = 0;
 			} else {
-				if (0 == atoi(str_value)) {
-					*(uint32_t*)pvalue = OOF_STATE_DISABLED;
-				} else {
-					str_value = config_file_get_value(
-							pconfig, "DURATION_SWITCH");
-					if (NULL == str_value || 0 == atoi(str_value)) {
-						*(uint32_t*)pvalue = OOF_STATE_ENABLED;
-					} else {
-						*(uint32_t*)pvalue = OOF_STATE_SCHEDULED;
-					}
+				*(uint32_t*)pvalue = atoi(str_value);
+				if (*(uint32_t*)pvalue > 2) {
+					*(uint32_t*)pvalue = 0;
 				}
 			}
+			config_file_free(pconfig);
 		}
-		break;
+		return pvalue;
 	case PROP_TAG_OOFINTERNALREPLY:
 	case PROP_TAG_OOFEXTERNALREPLY:
 		if (PROP_TAG_OOFINTERNALREPLY == proptag) {
@@ -859,26 +852,25 @@ static void* store_object_get_oof_property(
 			sprintf(temp_path, "%s/config/external-reply", maildir);
 		}
 		if (0 != stat(temp_path, &node_stat)) {
-			break;
+			return NULL;
 		}
 		buff_len = node_stat.st_size;
 		fd = open(temp_path, O_RDONLY);
 		if (-1 == fd) {
-			break;
+			return NULL;
 		}
 		pbuff = common_util_alloc(buff_len + 1);
 		if (NULL == pbuff) {
 			close(fd);
-			break;
+			return NULL;
 		}
 		if (buff_len != read(fd, pbuff, buff_len)) {
 			close(fd);
-			break;
+			return NULL;
 		}
 		close(fd);
 		pbuff[buff_len] = '\0';
-		pvalue = strstr(pbuff, "\r\n\r\n");
-		break;
+		return strstr(pbuff, "\r\n\r\n");
 	case PROP_TAG_OOFINTERNALSUBJECT:
 	case PROP_TAG_OOFEXTERNALSUBJECT:
 		if (PROP_TAG_OOFINTERNALSUBJECT == proptag) {
@@ -887,21 +879,21 @@ static void* store_object_get_oof_property(
 			sprintf(temp_path, "%s/config/external-reply", maildir);
 		}
 		if (0 != stat(temp_path, &node_stat)) {
-			break;
+			return NULL;
 		}
 		buff_len = node_stat.st_size;
 		fd = open(temp_path, O_RDONLY);
 		if (-1 == fd) {
-			break;
+			return NULL;
 		}
 		pbuff = common_util_alloc(buff_len);
 		if (NULL == pbuff) {
 			close(fd);
-			break;
+			return NULL;
 		}
 		if (buff_len != read(fd, pbuff, buff_len)) {
 			close(fd);
-			break;
+			return NULL;
 		}
 		close(fd);
 		offset = 0;
@@ -913,144 +905,59 @@ static void* store_object_get_oof_property(
 				mime_field.field_value[mime_field.field_value_len] = '\0';
 				if (TRUE == mime_string_to_utf8("utf-8",
 					mime_field.field_value, subject)) {
-					pvalue = common_util_dup(subject);
-					break;
+					return common_util_dup(subject);
 				}
 			}
 			if ('\r' == pbuff[offset] && '\n' == pbuff[offset + 1]) {
-				break;
+				return NULL;
 			}
 		}
-		break;
+		return NULL;
 	case PROP_TAG_OOFBEGIN:
-		if (NULL == pconfig) {
-			break;
-		}
-		str_value = config_file_get_value(pconfig, "DURATION_DATE");
-		if (NULL == str_value) {
-			break;
-		}
-		strncpy(date_buff, str_value, 64);
-		str_value = config_file_get_value(pconfig, "DURATION_TIME");
-		if (NULL == str_value) {
-			break;
-		}
-		strncpy(time_buff, str_value, 64);
-		ptoken = strchr(date_buff, '~');
-		if (NULL == ptoken) {
-			break;
-		}
-		*ptoken = '\0';
-		memset(&dtm, 0, sizeof(dtm));
-		if (NULL == strptime(date_buff, "%Y-%m-%d", &dtm)) {
-			break;
-		}
-		ptoken = strchr(time_buff, '~');
-		if (NULL == ptoken) {
-			break;
-		}
-		*ptoken = '\0';
-		memset(&ttm, 0, sizeof(ttm));
-		if (NULL == strptime(time_buff, "%H:%M", &ttm)) {
-			break;
-		}
-		pvalue = common_util_alloc(sizeof(uint64_t));
-		if (NULL == pvalue) {
-			break;
-		}
-		memset(&unix_tm, 0, sizeof(struct tm));
-		unix_tm.tm_sec = ttm.tm_sec;
-		unix_tm.tm_min = ttm.tm_min;
-		unix_tm.tm_hour = ttm.tm_hour;
-		unix_tm.tm_mday = dtm.tm_mday;
-		unix_tm.tm_mon = dtm.tm_mon;
-		unix_tm.tm_year = dtm.tm_year;
-		unix_tm.tm_wday = dtm.tm_wday;
-		unix_tm.tm_yday = dtm.tm_yday;
-		*(uint64_t*)pvalue = common_util_tm_to_nttime(unix_tm);
-		break;
 	case PROP_TAG_OOFUNTIL:
+		sprintf(temp_path, "%s/config/autoreply.cfg", maildir);
+		pconfig = config_file_init(temp_path);
 		if (NULL == pconfig) {
-			break;
-		}
-		str_value = config_file_get_value(pconfig, "DURATION_DATE");
-		if (NULL == str_value) {
-			break;
-		}
-		strncpy(date_buff, str_value, 64);
-		str_value = config_file_get_value(pconfig, "DURATION_TIME");
-		if (NULL == str_value) {
-			break;
-		}
-		strncpy(time_buff, str_value, 64);
-		ptoken = strchr(date_buff, '~');
-		if (NULL == ptoken) {
-			break;
-		}
-		memset(&dtm, 0, sizeof(dtm));
-		if (NULL == strptime(ptoken + 1, "%Y-%m-%d", &dtm)) {
-			break;
-		}
-		ptoken = strchr(time_buff, '~');
-		if (NULL == ptoken) {
-			break;
-		}
-		memset(&ttm, 0, sizeof(ttm));
-		if (NULL == strptime(ptoken + 1, "%H:%M", &ttm)) {
-			break;
+			return NULL;
 		}
 		pvalue = common_util_alloc(sizeof(uint64_t));
 		if (NULL == pvalue) {
-			break;
+			config_file_free(pconfig);
+			return NULL;
 		}
-		memset(&unix_tm, 0, sizeof(struct tm));
-		unix_tm.tm_sec = ttm.tm_sec;
-		unix_tm.tm_min = ttm.tm_min;
-		unix_tm.tm_hour = ttm.tm_hour;
-		unix_tm.tm_mday = dtm.tm_mday;
-		unix_tm.tm_mon = dtm.tm_mon;
-		unix_tm.tm_year = dtm.tm_year;
-		unix_tm.tm_wday = dtm.tm_wday;
-		unix_tm.tm_yday = dtm.tm_yday;
-		*(uint64_t*)pvalue = common_util_tm_to_nttime(unix_tm);
-		break;
-	case PROP_TAG_OOFALLOWEXTERNAL:
-		pvalue = common_util_alloc(sizeof(uint8_t));
-		if (NULL == pvalue) {
-			break;
-		}
-		if (NULL == pconfig) {
-			*(uint8_t*)pvalue = 0;
-			break;
-		}
-		str_value = config_file_get_value(pconfig, "EXTERNAL_SWITCH");
-		if (NULL == str_value || 0 == atoi(str_value)) {
-			*(uint8_t*)pvalue = 0;
+		if (PROP_TAG_OOFBEGIN == proptag) {
+			str_value = config_file_get_value(pconfig, "START_TIME");
 		} else {
-			*(uint8_t*)pvalue = 1;
+			str_value = config_file_get_value(pconfig, "END_TIME");
 		}
-		break;
-	case PROP_TAG_OOFEXTERNALAUDIENCE:
-		pvalue = common_util_alloc(sizeof(uint8_t));
-		if (NULL == pvalue) {
-			break;
+		if (NULL == str_value) {
+			config_file_free(pconfig);
+			return NULL;
 		}
-		if (NULL == pconfig) {
-			*(uint8_t*)pvalue = 0;
-			break;
-		}
-		str_value = config_file_get_value(pconfig, "EXTERNAL_CHECK");
-		if (NULL == str_value || 0 == atoi(str_value)) {
-			*(uint8_t*)pvalue = 0;
-		} else {
-			*(uint8_t*)pvalue = 1;
-		}
-		break;
-	}
-	if (NULL != pconfig) {
+		*(uint64_t*)pvalue = rop_util_unix_to_nttime(atoll(str_value));
 		config_file_free(pconfig);
+		return pvalue;
+	case PROP_TAG_OOFALLOWEXTERNAL:
+	case PROP_TAG_OOFEXTERNALAUDIENCE:
+		sprintf(temp_path, "%s/config/autoreply.cfg", maildir);
+		pconfig = config_file_init(temp_path);
+		if (NULL == pconfig) {
+			return &fake_false;
+		}
+		if (PROP_TAG_OOFALLOWEXTERNAL == proptag) {
+			str_value = config_file_get_value(pconfig, "ALLOW_EXTERNAL_OOF");
+		} else {
+			str_value = config_file_get_value(pconfig, "EXTERNAL_AUDIENCE");
+		}
+		if (NULL == str_value || 0 == atoi(str_value)) {
+			pvalue = &fake_false;
+		} else {
+			pvalue = &fake_true;
+		}
+		config_file_free(pconfig);
+		return pvalue;
 	}
-	return pvalue;
+	return NULL;
 }
 
 static BOOL store_object_get_calculated_property(
@@ -1328,6 +1235,7 @@ static BOOL store_object_get_calculated_property(
 	case PROP_TAG_RECORDKEY:
 	case PROP_TAG_INSTANCEKEY:
 	case PROP_TAG_STORERECORDKEY:
+	case PROP_TAG_MAPPINGSIGNATURE:
 		*ppvalue = common_util_guid_to_binary(pstore->mailbox_guid);
 		return TRUE;
 	case PROP_TAG_ENTRYID:
@@ -1475,6 +1383,31 @@ static BOOL store_object_get_calculated_property(
 			return FALSE;
 		}
 		return TRUE;
+	case PROP_TAG_ECUSERLANGUAGE:
+		if (FALSE == store_object_check_private(pstore)) {
+			return FALSE;
+		}
+		if (FALSE == system_services_get_user_lang(
+			pstore->account, temp_buff)) {
+			return FALSE;	
+		}
+		*ppvalue = (void*)common_util_lang_to_i18n(temp_buff);
+		return TRUE;
+	case PROP_TAG_ECUSERTIMEZONE:
+		if (FALSE == store_object_check_private(pstore)) {
+			return FALSE;
+		}
+		if (FALSE == system_services_get_timezone(
+			pstore->account, temp_buff) || '\0' ==
+			temp_buff[0]) {
+			*ppvalue = (void*)common_util_get_default_timezone();
+		} else {
+			*ppvalue = common_util_dup(temp_buff);
+			if (NULL == *ppvalue) {
+				return FALSE;
+			}
+		}
+		return TRUE;
 	}
 	return FALSE;
 }
@@ -1564,7 +1497,7 @@ static BOOL store_object_set_oof_property(const char *maildir,
 	char *pbuff;
 	int buff_len;
 	char *ptoken;
-	char *str_value;
+	char temp_buff[64];
 	char temp_path[256];
 	CONFIG_FILE *pconfig;
 	struct stat node_stat;
@@ -1584,17 +1517,33 @@ static BOOL store_object_set_oof_property(const char *maildir,
 			return FALSE;
 		}
 		switch (*(uint32_t*)pvalue) {
-		case OOF_STATE_DISABLED:
-			config_file_set_value(pconfig, "REPLY_SWITCH", "0");
+		case 1:
+			config_file_set_value(pconfig, "OOF_STATE", "1");
 			break;
-		case OOF_STATE_ENABLED:
-			config_file_set_value(pconfig, "REPLY_SWITCH", "1");
-			config_file_set_value(pconfig, "DURATION_SWITCH", "0");
+		case 2:
+			config_file_set_value(pconfig, "OOF_STATE", "2");
 			break;
-		case OOF_STATE_SCHEDULED:
-			config_file_set_value(pconfig, "REPLY_SWITCH", "1");
-			config_file_set_value(pconfig, "DURATION_SWITCH", "1");
+		default:
+			config_file_set_value(pconfig, "OOF_STATE", "0");
 			break;
+		}
+		if (FALSE == config_file_save(pconfig)) {
+			config_file_free(pconfig);
+			return FALSE;
+		}
+		config_file_free(pconfig);
+		return TRUE;
+	case PROP_TAG_OOFBEGIN:
+	case PROP_TAG_OOFUNTIL:
+		pconfig = config_file_init(temp_path);
+		if (NULL == pconfig) {
+			return FALSE;
+		}
+		sprintf(temp_buff, "%lu", rop_util_nttime_to_unix(*(uint64_t*)pvalue));
+		if (PROP_TAG_OOFBEGIN == proptag) {
+			config_file_set_value(pconfig, "START_TIME", temp_buff);
+		} else {
+			config_file_set_value(pconfig, "END_TIME", temp_buff);
 		}
 		if (FALSE == config_file_save(pconfig)) {
 			config_file_free(pconfig);
@@ -1610,6 +1559,13 @@ static BOOL store_object_set_oof_property(const char *maildir,
 			sprintf(temp_path, "%s/config/external-reply", maildir);
 		}
 		if (0 != stat(temp_path, &node_stat)) {
+			pbuff = common_util_alloc(buff_len + 256);
+			if (NULL == pbuff) {
+				return FALSE;
+			}
+			buff_len = sprintf(pbuff, "Content-Type: text/html;\r\n"
+							"\tcharset=\"utf-8\"\r\n\r\n%s", pvalue);
+		} else {
 			buff_len = node_stat.st_size;
 			fd = open(temp_path, O_RDONLY);
 			if (-1 == fd) {
@@ -1634,13 +1590,6 @@ static BOOL store_object_set_oof_property(const char *maildir,
 				buff_len = sprintf(pbuff, "Content-Type: text/html;\r\n"
 								"\tcharset=\"utf-8\"\r\n\r\n%s", pvalue);
 			}
-		} else {
-			pbuff = common_util_alloc(buff_len + 256);
-			if (NULL == pbuff) {
-				return FALSE;
-			}
-			buff_len = sprintf(pbuff, "Content-Type: text/html;\r\n"
-							"\tcharset=\"utf-8\"\r\n\r\n%s", pvalue);
 		}
 		fd = open(temp_path, O_CREAT|O_TRUNC|O_WRONLY, 0666);
 		if (-1 == fd) {
@@ -1706,30 +1655,23 @@ static BOOL store_object_set_oof_property(const char *maildir,
 		close(fd);
 		return TRUE;
 	case PROP_TAG_OOFALLOWEXTERNAL:
-		pconfig = config_file_init(temp_path);
-		if (NULL == pconfig) {
-			return FALSE;
-		}
-		if (0 == *(uint8_t*)pvalue) {
-			config_file_set_value(pconfig, "EXTERNAL_SWITCH", "0");
-		} else {
-			config_file_set_value(pconfig, "EXTERNAL_SWITCH", "1");
-		}
-		if (FALSE == config_file_save(pconfig)) {
-			config_file_free(pconfig);
-			return FALSE;
-		}
-		config_file_free(pconfig);
-		return TRUE;
 	case PROP_TAG_OOFEXTERNALAUDIENCE:
 		pconfig = config_file_init(temp_path);
 		if (NULL == pconfig) {
 			return FALSE;
 		}
 		if (0 == *(uint8_t*)pvalue) {
-			config_file_set_value(pconfig, "EXTERNAL_CHECK", "0");
+			if (PROP_TAG_OOFALLOWEXTERNAL == proptag) {
+				config_file_set_value(pconfig, "ALLOW_EXTERNAL_OOF", "0");
+			} else {
+				config_file_set_value(pconfig, "EXTERNAL_AUDIENCE", "0");
+			}
 		} else {
-			config_file_set_value(pconfig, "EXTERNAL_CHECK", "1");
+			if (PROP_TAG_OOFALLOWEXTERNAL == proptag) {
+				config_file_set_value(pconfig, "ALLOW_EXTERNAL_OOF", "1");
+			} else {
+				config_file_set_value(pconfig, "EXTERNAL_AUDIENCE", "1");
+			}
 		}
 		if (FALSE == config_file_save(pconfig)) {
 			config_file_free(pconfig);
@@ -1741,71 +1683,72 @@ static BOOL store_object_set_oof_property(const char *maildir,
 	return FALSE;
 }
 
-static BOOL store_object_set_oof_schedule(const char *maildir,
-	uint64_t begin_time, uint64_t until_time)
+static BOOL store_object_set_folder_name(STORE_OBJECT *pstore,
+	uint64_t fid_val, const char *pdisplayname)
 {
-	int fd;
-	struct tm begin_tm;
-	struct tm until_tm;
-	char temp_path[256];
-	char temp_buff[256];
-	CONFIG_FILE *pconfig;
-	struct stat node_stat;
+	XID tmp_xid;
+	BINARY *pbin_pcl;
+	uint64_t folder_id;
+	uint64_t last_time;
+	uint64_t change_num;
+	BINARY *pbin_changekey;
+	PROBLEM_ARRAY tmp_problems;
+	TPROPVAL_ARRAY tmp_propvals;
+	TAGGED_PROPVAL propval_buff[5];
 	
-	if (FALSE == common_util_nttime_to_tm(begin_time, &begin_tm) ||
-		FALSE == common_util_nttime_to_tm(until_time, &until_tm)) {
-		return FALSE;	
-	}
-	sprintf(temp_path, "%s/config/autoreply.cfg", maildir);
-	if (0 != stat(temp_path, &node_stat)) {
-		fd = open(temp_path, O_CREAT|O_TRUNC|O_WRONLY, 0666);
-		if (-1 == fd) {
-			return FALSE;
-		}
-		close(fd);
-	}
-	pconfig = config_file_init(temp_path);
-	if (NULL == pconfig) {
+	if (FALSE == pstore->b_private) {
 		return FALSE;
 	}
-	sprintf(temp_buff, "%d-%d-%d~%d-%d-%d",
-		begin_tm.tm_year + 1900, begin_tm.tm_mon + 1,
-		begin_tm.tm_mday, until_tm.tm_year + 1900,
-		until_tm.tm_mon + 1, until_tm.tm_mday);
-	config_file_set_value(pconfig, "DURATION_DATE", temp_buff);
-	sprintf(temp_buff, "%02d:%02d~%02d:%02d",
-			begin_tm.tm_hour, begin_tm.tm_min,
-			until_tm.tm_hour, until_tm.tm_min);
-	config_file_set_value(pconfig, "DURATION_TIME", temp_buff);
-	if (FALSE == config_file_save(pconfig)) {
-		config_file_free(pconfig);
+	folder_id = rop_util_make_eid_ex(1, fid_val);
+	tmp_propvals.ppropval = propval_buff;
+	tmp_propvals.count = 5;
+	tmp_propvals.ppropval[0].proptag = PROP_TAG_DISPLAYNAME;
+	tmp_propvals.ppropval[0].pvalue = (void*)pdisplayname;
+	if (FALSE == exmdb_client_allocate_cn(pstore->dir, &change_num)) {
 		return FALSE;
 	}
-	config_file_free(pconfig);
-	return TRUE;
+	tmp_propvals.ppropval[1].proptag = PROP_TAG_CHANGENUMBER;
+	tmp_propvals.ppropval[1].pvalue = &change_num;
+	if (FALSE == exmdb_client_get_folder_property(pstore->dir,
+		0, folder_id, PROP_TAG_PREDECESSORCHANGELIST,
+		(void**)&pbin_pcl) || NULL == pbin_pcl) {
+		return FALSE;
+	}
+	tmp_xid.guid = rop_util_make_user_guid(pstore->account_id);
+	rop_util_get_gc_array(change_num, tmp_xid.local_id);
+	pbin_changekey = common_util_xid_to_binary(22, &tmp_xid);
+	if (NULL == pbin_changekey) {
+		return FALSE;
+	}
+	pbin_pcl = common_util_pcl_append(pbin_pcl, pbin_changekey);
+	if (NULL == pbin_pcl) {
+		return FALSE;
+	}
+	last_time = rop_util_current_nttime();
+	tmp_propvals.ppropval[2].proptag = PROP_TAG_CHANGEKEY;
+	tmp_propvals.ppropval[2].pvalue = pbin_changekey;
+	tmp_propvals.ppropval[3].proptag = PROP_TAG_PREDECESSORCHANGELIST;
+	tmp_propvals.ppropval[3].pvalue = pbin_pcl;
+	tmp_propvals.ppropval[4].proptag = PROP_TAG_LASTMODIFICATIONTIME;
+	tmp_propvals.ppropval[4].pvalue = &last_time;
+	return exmdb_client_set_folder_properties(
+		pstore->dir, 0, folder_id, &tmp_propvals,
+		&tmp_problems);
 }
 
 BOOL store_object_set_properties(STORE_OBJECT *pstore,
 	const TPROPVAL_ARRAY *ppropvals)
 {
-	int i;
+	int i, fd;
 	USER_INFO *pinfo;
-	uint64_t *poof_until;
-	uint64_t *poof_begin;
+	const char *plang;
+	char temp_path[256];
+	char *folder_lang[RES_TOTAL_NUM];
 	
 	pinfo = zarafa_server_get_info();
 	if (FALSE == pstore->b_private ||
 		pinfo->user_id != pstore->account_id) {
 		return TRUE;
-	}
-	poof_begin = common_util_get_propvals(ppropvals, PROP_TAG_OOFBEGIN);
-	poof_until = common_util_get_propvals(ppropvals, PROP_TAG_OOFUNTIL);
-	if (NULL != poof_begin && NULL != poof_until) {
-		if (FALSE == store_object_set_oof_schedule(
-			store_object_get_dir(pstore), *poof_begin,
-			*poof_until)) {
-			return FALSE;	
-		}
 	}
 	for (i=0; i<ppropvals->count; i++) {
 		if (TRUE == store_object_check_readonly_property(
@@ -1813,20 +1756,94 @@ BOOL store_object_set_properties(STORE_OBJECT *pstore,
 			continue;
 		}
 		switch (ppropvals->ppropval[i].proptag) {
+		case PROP_TAG_OOFSTATE:
 		case PROP_TAG_OOFBEGIN:
 		case PROP_TAG_OOFUNTIL:
-			continue;
-		case PROP_TAG_OOFSTATE:
 		case PROP_TAG_OOFINTERNALREPLY:
 		case PROP_TAG_OOFINTERNALSUBJECT:
 		case PROP_TAG_OOFALLOWEXTERNAL:
 		case PROP_TAG_OOFEXTERNALAUDIENCE:
+		case PROP_TAG_OOFEXTERNALSUBJECT:
 		case PROP_TAG_OOFEXTERNALREPLY:
 			if (FALSE == store_object_set_oof_property(
 				store_object_get_dir(pstore),
 				ppropvals->ppropval[i].proptag,
 				ppropvals->ppropval[i].pvalue)) {
 				return FALSE;	
+			}
+			break;
+		case PROP_TAG_ECUSERLANGUAGE:
+			if (TRUE == pstore->b_private) {
+				plang = common_util_i18n_to_lang(
+					ppropvals->ppropval[i].pvalue);
+				common_util_get_folder_lang(plang, folder_lang);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_IPMSUBTREE,
+					folder_lang[RES_ID_IPM]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_INBOX,
+					folder_lang[RES_ID_INBOX]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_DRAFT,
+					folder_lang[RES_ID_DRAFT]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_OUTBOX,
+					folder_lang[RES_ID_OUTBOX]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_SENT_ITEMS,
+					folder_lang[RES_ID_SENT]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_DELETED_ITEMS,
+					folder_lang[RES_ID_DELETED]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_CONTACTS,
+					folder_lang[RES_ID_CONTACTS]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_CALENDAR,
+					folder_lang[RES_ID_CALENDAR]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_JOURNAL,
+					folder_lang[RES_ID_JOURNAL]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_NOTES,
+					folder_lang[RES_ID_NOTES]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_TASKS,
+					folder_lang[RES_ID_TASKS]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_JUNK,
+					folder_lang[RES_ID_JUNK]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_SYNC_ISSUES,
+					folder_lang[RES_ID_SYNC]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_CONFLICTS,
+					folder_lang[RES_ID_CONFLICT]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_LOCAL_FAILURES,
+					folder_lang[RES_ID_LOCAL]);
+				store_object_set_folder_name(
+					pstore, PRIVATE_FID_SERVER_FAILURES,
+					folder_lang[RES_ID_SERVER]);
+				system_services_set_user_lang(
+						pstore->account, plang);
+			}
+			break;
+		case PROP_TAG_ECUSERTIMEZONE:
+			if (TRUE == pstore->b_private) {
+				system_services_set_timezone(pstore->account,
+							ppropvals->ppropval[i].pvalue);
+			}
+			break;
+		case PROP_TAG_THUMBNAILPHOTO:
+			if (TRUE == pstore->b_private) {
+				sprintf(temp_path, "%s/config/portrait.jpg", pstore->dir);
+				fd = open(temp_path, O_CREAT|O_TRUNC|O_WRONLY, 0666);
+				if (-1 != fd) {
+					write(fd, ((BINARY*)ppropvals->ppropval[i].pvalue)->pb,
+						((BINARY*)ppropvals->ppropval[i].pvalue)->cb);
+					close(fd);
+				}
 			}
 			break;
 		default:
@@ -1867,7 +1884,6 @@ static BOOL store_object_get_folder_permissions(
 	PERMISSION_SET *pperm_set)
 {
 	int i, j;
-	const char *dir;
 	BINARY *pentryid;
 	uint32_t row_num;
 	uint32_t table_id;
@@ -1887,9 +1903,9 @@ static BOOL store_object_get_folder_permissions(
 	}
 	proptags.count = 2;
 	proptags.pproptag = proptag_buff;
-	if (FALSE == exmdb_client_query_table(dir, NULL, 0,
-		table_id, &proptags, 0, row_num, &permission_set)) {
-		exmdb_client_unload_table(dir, table_id);
+	if (FALSE == exmdb_client_query_table(pstore->dir, NULL,
+		0, table_id, &proptags, 0, row_num, &permission_set)) {
+		exmdb_client_unload_table(pstore->dir, table_id);
 		return FALSE;
 	}
 	exmdb_client_unload_table(pstore->dir, table_id);

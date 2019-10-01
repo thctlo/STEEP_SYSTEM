@@ -20,11 +20,6 @@
 
 #define EPOCH_DIFF 							11644473600LL
 
-/* PROP_TAG_CONTAINERFLAGS values */
-#define	AB_RECIPIENTS						0x1
-#define	AB_SUBCONTAINERS					0x2
-#define	AB_UNMODIFIABLE						0x8
-
 #define DTE_FLAG_ACL_CAPABLE				0x40000000
 
 #define ADDRESS_TYPE_NORMAL					0
@@ -92,7 +87,6 @@ static INT_HASH_TABLE *g_base_hash;
 static pthread_mutex_t g_base_lock;
 static pthread_mutex_t g_list_lock;
 static LIB_BUFFER *g_file_allocator;
-static pthread_mutex_t g_remote_lock;
 static const uint8_t g_guid_nspi[] = {0xDC, 0xA7, 0x40, 0xC8,
 									   0xC0, 0x42, 0x10, 0x1A,
 									   0xB4, 0xB9, 0x08, 0x00,
@@ -119,7 +113,7 @@ uint32_t ab_tree_make_minid(uint8_t type, int value)
 	return minid;
 }
 
-static uint8_t ab_tree_get_minid_type(uint32_t minid)
+uint8_t ab_tree_get_minid_type(uint32_t minid)
 {
 	uint8_t type;
 	
@@ -133,7 +127,7 @@ static uint8_t ab_tree_get_minid_type(uint32_t minid)
 	return type;
 }
 
-static int ab_tree_get_minid_value(uint32_t minid)
+int ab_tree_get_minid_value(uint32_t minid)
 {
 	if (0 == (minid & 0x80000000)) {
 		return minid;
@@ -213,15 +207,6 @@ SIMPLE_TREE_NODE* ab_tree_minid_to_node(AB_BASE *pbase, uint32_t minid)
 	if (NULL != ppnode) {
 		return *ppnode;
 	}
-	pthread_mutex_lock(&g_remote_lock);
-	for (psnode=single_list_get_head(&pbase->remote_list); NULL!=psnode;
-		psnode=single_list_get_after(&pbase->remote_list, psnode)) {
-		if (minid == ((AB_NODE*)psnode->pdata)->minid) {
-			pthread_mutex_unlock(&g_remote_lock);
-			return psnode->pdata;
-		}
-	}
-	pthread_mutex_unlock(&g_remote_lock);
 	return NULL;
 }
 
@@ -236,7 +221,6 @@ void ab_tree_init(const char *org_name, int base_size,
 	single_list_init(&g_abnode_list);
 	pthread_mutex_init(&g_list_lock, NULL);
 	pthread_mutex_init(&g_base_lock, NULL);
-	pthread_mutex_init(&g_remote_lock, NULL);
 	g_notify_stop = TRUE;
 }
 
@@ -303,11 +287,6 @@ static void ab_tree_unload_base(AB_BASE *pbase)
 		ab_tree_put_snode(pnode);
 	}
 	single_list_free(&pbase->gal_list);
-	while (pnode = single_list_get_from_head(&pbase->remote_list)) {
-		ab_tree_put_abnode(pnode->pdata);
-		ab_tree_put_snode(pnode);
-	}
-	single_list_free(&pbase->remote_list);
 	if (NULL != pbase->phash) {
 		int_hash_free(pbase->phash);
 		pbase->phash = NULL;
@@ -354,7 +333,6 @@ void ab_tree_free()
 {
 	pthread_mutex_destroy(&g_base_lock);
 	pthread_mutex_destroy(&g_list_lock);
-	pthread_mutex_destroy(&g_remote_lock);
 	single_list_free(&g_abnode_list);
 	single_list_free(&g_snode_list);
 }
@@ -1035,7 +1013,6 @@ RETRY_LOAD_BASE:
 		pbase->status = BASE_STATUS_CONSTRUCTING;
 		single_list_init(&pbase->list);
 		single_list_init(&pbase->gal_list);
-		single_list_init(&pbase->remote_list);
 		pbase->phash = NULL;
 		pthread_mutex_unlock(&g_base_lock);
 		if (FALSE == ab_tree_load_base(pbase)) {
@@ -1107,10 +1084,6 @@ static void *scan_work_func(void *param)
 			free(pnode->pdata);
 		}
 		while (pnode = single_list_get_from_head(&pbase->gal_list)) {
-			ab_tree_put_snode(pnode);
-		}
-		while (pnode = single_list_get_from_head(&pbase->remote_list)) {
-			ab_tree_put_abnode(pnode->pdata);
 			ab_tree_put_snode(pnode);
 		}
 		if (NULL != pbase->phash) {
@@ -1450,72 +1423,6 @@ BOOL ab_tree_node_to_dn(SIMPLE_TREE_NODE *pnode, char *pbuff, int length)
 		ab_tree_put_base(pbase);
 	}
 	return TRUE;	
-}
-
-SIMPLE_TREE_NODE* ab_tree_dn_to_node(AB_BASE *pbase, const char *pdn)
-{
-	int id;
-	int temp_len;
-	int domain_id;
-	uint32_t minid;
-	AB_BASE *pbase1;
-	AB_NODE *pabnode;
-	SINGLE_LIST_NODE *psnode;
-	char prefix_string[1024];
-	SIMPLE_TREE_NODE **ppnode;
-	
-	temp_len = snprintf(prefix_string, 1024, "/o=%s/ou=Exchange "
-			"Administrative Group (FYDIBOHF23SPDLT)", g_org_name);
-	if (0 != strncasecmp(pdn, prefix_string, temp_len)) {
-		return NULL;
-	}
-	if (0 != strncasecmp(pdn + temp_len, "/cn=Recipients/cn=", 18)) {
-		return NULL;
-	}
-	domain_id = decode_hex_int(pdn + temp_len + 18);
-	id = decode_hex_int(pdn + temp_len + 26);
-	minid = ab_tree_make_minid(MINID_TYPE_ADDRESS, id);
-	ppnode = int_hash_query(pbase->phash, minid);
-	if (NULL != ppnode) {
-		return *ppnode;
-	}
-	for (psnode=single_list_get_head(&pbase->list); NULL!=psnode;
-		psnode=single_list_get_after(&pbase->list, psnode)) {
-		if (((DOMAIN_NODE*)psnode->pdata)->domain_id == domain_id) {
-			return NULL;
-		}
-	}
-	pbase1 = ab_tree_get_base((-1)*domain_id);
-	if (NULL == pbase1) {
-		return NULL;
-	}
-	ppnode = int_hash_query(pbase1->phash, minid);
-	if (NULL == ppnode) {
-		ab_tree_put_base(pbase1);
-		return NULL;
-	}
-	psnode = ab_tree_get_snode();
-	if (NULL == psnode) {
-		ab_tree_put_base(pbase1);
-		return NULL;
-	}
-	pabnode = ab_tree_get_abnode();
-	if (NULL == pabnode) {
-		ab_tree_put_base(pbase1);
-		ab_tree_put_snode(psnode);
-		return NULL;
-	}
-	psnode->pdata = pabnode;
-	((SIMPLE_TREE_NODE*)pabnode)->pdata = NULL;
-	pabnode->node_type = NODE_TYPE_REMOTE;
-	pabnode->minid = ((AB_NODE*)*ppnode)->minid;
-	pabnode->id = domain_id;
-	mem_file_copy(&((AB_NODE*)*ppnode)->f_info, &pabnode->f_info);
-	ab_tree_put_base(pbase1);
-	pthread_mutex_lock(&g_remote_lock);
-	single_list_append_as_tail(&pbase->remote_list, psnode);
-	pthread_mutex_unlock(&g_remote_lock);
-	return (SIMPLE_TREE_NODE*)pabnode;
 }
 
 uint32_t ab_tree_get_node_minid(SIMPLE_TREE_NODE *pnode)
@@ -1891,7 +1798,9 @@ BOOL ab_tree_fetch_node_property(SIMPLE_TREE_NODE *pnode,
 	EXT_PUSH ext_push;
 	ADDRESSBOOK_ENTRYID ab_entryid;
 	
-	if (PROP_TAG_ABPROVIDERID == proptag) {
+	node_type = ab_tree_get_node_type(pnode);
+	switch (proptag) {
+	case PROP_TAG_ABPROVIDERID:
 		*ppvalue = common_util_alloc(sizeof(BINARY));
 		if (NULL == *ppvalue) {
 			return FALSE;
@@ -1899,68 +1808,6 @@ BOOL ab_tree_fetch_node_property(SIMPLE_TREE_NODE *pnode,
 		((BINARY*)*ppvalue)->cb = 16;
 		((BINARY*)*ppvalue)->pb = common_util_get_muidecsab();
 		return TRUE;
-	}
-	if (NULL == pnode) {
-		switch (proptag) {
-		case PROP_TAG_ENTRYID:
-			pvalue = common_util_alloc(sizeof(BINARY));
-			if (NULL == pvalue) {
-				return FALSE;
-			}
-			ab_entryid.flags = 0;
-			rop_util_get_provider_uid(PROVIDER_UID_ADDRESS_BOOK,
-										ab_entryid.provider_uid);
-			ab_entryid.version = 1;
-			ab_entryid.type = ADDRESSBOOK_ENTRYID_TYPE_CONTAINER;
-			ab_entryid.px500dn = "/";
-			((BINARY*)pvalue)->pb = common_util_alloc(1280);
-			if (NULL == ((BINARY*)pvalue)->pb) {
-				return FALSE;
-			}
-			ext_buffer_push_init(&ext_push, ((BINARY*)pvalue)->pb, 1280, 0);
-			if (EXT_ERR_SUCCESS != ext_buffer_push_addressbook_entryid(
-				&ext_push, &ab_entryid)) {
-				return FALSE;
-			}
-			((BINARY*)pvalue)->cb = ext_push.offset;
-			*ppvalue = pvalue;
-			return TRUE;
-		case PROP_TAG_CONTAINERFLAGS:
-			pvalue = common_util_alloc(sizeof(uint32_t));
-			if (NULL == pvalue) {
-				return FALSE;
-			}
-			*(uint32_t*)pvalue = AB_RECIPIENTS |
-				AB_SUBCONTAINERS | AB_UNMODIFIABLE;
-			*ppvalue = pvalue;
-			return TRUE;
-		case PROP_TAG_DEPTH:
-		case PROP_TAG_ADDRESSBOOKCONTAINERID:
-			pvalue = common_util_alloc(sizeof(uint32_t));
-			if (NULL == pvalue) {
-				return FALSE;
-			}
-			*(uint32_t*)pvalue = 0;
-			*ppvalue = pvalue;
-			return TRUE;
-		case PROP_TAG_DISPLAYNAME:
-			*ppvalue = "Global Address List";
-			return TRUE;
-		case PROP_TAG_ADDRESSBOOKISMASTER:
-			pvalue = common_util_alloc(sizeof(uint8_t));
-			if (NULL == pvalue) {
-				return FALSE;
-			}
-			*(uint8_t*)pvalue = 0;
-			*ppvalue = pvalue;
-			return TRUE;
-		default:
-			*ppvalue = NULL;
-			return TRUE;
-		}
-	}
-	node_type = ab_tree_get_node_type(pnode);
-	switch (proptag) {
 	case PROP_TAG_CONTAINERFLAGS:
 		if (node_type < 0x80) {
 			*ppvalue = NULL;
@@ -1987,7 +1834,7 @@ BOOL ab_tree_fetch_node_property(SIMPLE_TREE_NODE *pnode,
 		if (NULL == pvalue) {
 			return FALSE;
 		}
-		*(uint32_t*)pvalue = simple_tree_node_get_depth(pnode);
+		*(uint32_t*)pvalue = simple_tree_node_get_depth(pnode) + 1;
 		*ppvalue = pvalue;
 		return TRUE;
 	case PROP_TAG_ADDRESSBOOKISMASTER:
@@ -2613,7 +2460,6 @@ static BOOL ab_tree_match_node(SIMPLE_TREE_NODE *pnode,
 	char *ptoken;
 	void *pvalue;
 	uint8_t node_type;
-	char temp_buff[1024];
 	
 	switch (pfilter->rt) {
 	case RESTRICTION_TYPE_AND:
@@ -2626,7 +2472,7 @@ static BOOL ab_tree_match_node(SIMPLE_TREE_NODE *pnode,
 		return TRUE;
 	case RESTRICTION_TYPE_OR:
 		for (i=0; i<((RESTRICTION_AND_OR*)pfilter->pres)->count; i++) {
-			if (FALSE == ab_tree_match_node(pnode, codepage,
+			if (TRUE == ab_tree_match_node(pnode, codepage,
 				&((RESTRICTION_AND_OR*)pfilter->pres)->pres[i])) {
 				return TRUE;
 			}
@@ -2748,6 +2594,29 @@ static BOOL ab_tree_match_node(SIMPLE_TREE_NODE *pnode,
 	case RESTRICTION_TYPE_PROPCOMPARE:
 		return FALSE;
 	case RESTRICTION_TYPE_BITMASK:
+		 if (PROPVAL_TYPE_LONG != (((RESTRICTION_BITMASK*)
+			pfilter->pres)->proptag & 0xFFFF)) {
+			return FALSE;
+		}
+		if (FALSE == ab_tree_fetch_node_property(pnode, codepage,
+			((RESTRICTION_PROPERTY*)pfilter->pres)->proptag,
+			&pvalue) || NULL == pvalue) {
+			return FALSE;
+		}
+		switch (((RESTRICTION_BITMASK*)pfilter->pres)->bitmask_relop) {
+		case BITMASK_RELOP_EQZ:
+			if (0 == (*(uint32_t*)pvalue &
+				((RESTRICTION_BITMASK*)pfilter->pres)->mask)) {
+				return TRUE;
+			}
+			break;
+		case BITMASK_RELOP_NEZ:
+			if (*(uint32_t*)pvalue &
+				((RESTRICTION_BITMASK*)pfilter->pres)->mask) {
+				return TRUE;
+			}
+			break;
+		}
 		return FALSE;
 	case RESTRICTION_TYPE_SIZE:
 		return FALSE;
@@ -2778,7 +2647,7 @@ BOOL ab_tree_match_minids(AB_BASE *pbase, uint32_t container_id,
 	SINGLE_LIST_NODE *psnode1;
 	
 	single_list_init(&temp_list);
-	if (0 == container_id) {
+	if (0xFFFFFFFF == container_id) {
 		pgal_list = &pbase->gal_list;
 		for (psnode=single_list_get_head(pgal_list); NULL!=psnode;
 			psnode=single_list_get_after(pgal_list, psnode)) {
@@ -2793,8 +2662,11 @@ BOOL ab_tree_match_minids(AB_BASE *pbase, uint32_t container_id,
 			}
 		}
 	} else {
-		pnode = simple_tree_node_get_child(pnode);
-		if (NULL == pnode) {
+		pnode = ab_tree_minid_to_node(pbase, container_id);
+		if (NULL == pnode || NULL == (pnode =
+			simple_tree_node_get_child(pnode))) {
+			pminids->count = 0;
+			pminids->pl = NULL;
 			return TRUE;
 		}
 		do {
@@ -2806,15 +2678,19 @@ BOOL ab_tree_match_minids(AB_BASE *pbase, uint32_t container_id,
 				if (NULL == psnode1) {
 					return FALSE;
 				}
-				psnode1->pdata = psnode->pdata;
+				psnode1->pdata = pnode;
 				single_list_append_as_tail(&temp_list, psnode1);
 			}
 		} while (pnode=simple_tree_node_get_slibling(pnode));
 	}
 	pminids->count = single_list_get_nodes_num(&temp_list);
-	pminids->pl = common_util_alloc(sizeof(uint32_t)*pminids->count);
-	if (NULL == pminids->pl) {
-		return FALSE;
+	if (0 == pminids->count) {
+		pminids->pl = NULL;
+	} else {
+		pminids->pl = common_util_alloc(sizeof(uint32_t)*pminids->count);
+		if (NULL == pminids->pl) {
+			return FALSE;
+		}
 	}
 	count = 0;
 	for (psnode=single_list_get_head(&temp_list); NULL!=psnode;

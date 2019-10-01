@@ -800,8 +800,8 @@ BOOL message_object_read_recipients(MESSAGE_OBJECT *pmessage,
 	uint32_t row_id, uint16_t need_count, TARRAY_SET *pset)
 {
 	return exmdb_client_get_message_instance_rcpts(
-			store_object_get_dir(pmessage->pstore),
-			pmessage->instance_id, row_id, need_count, pset);
+		store_object_get_dir(pmessage->pstore),
+		pmessage->instance_id, row_id, need_count, pset);
 }
 
 BOOL message_object_get_rowid_begin(
@@ -809,7 +809,7 @@ BOOL message_object_get_rowid_begin(
 {
 	int i;
 	int last_rowid;
-	uint32_t *prow_id;
+	int32_t *prow_id;
 	TARRAY_SET tmp_set;
 	
 	if (FALSE == exmdb_client_get_message_instance_rcpts(
@@ -855,7 +855,7 @@ BOOL message_object_empty_rcpts(MESSAGE_OBJECT *pmessage)
 BOOL message_object_set_rcpts(MESSAGE_OBJECT *pmessage,
 	const TARRAY_SET *pset)
 {
-	int i, j;
+	int i;
 	
 	if (FALSE == exmdb_client_update_message_instance_rcpts(
 		store_object_get_dir(pmessage->pstore),
@@ -960,11 +960,8 @@ BOOL message_object_get_all_proptags(MESSAGE_OBJECT *pmessage,
 	for (i=0; i<tmp_proptags.count; i++) {
 		switch (tmp_proptags.pproptag[i]) {
 		case PROP_TAG_MID:
-		case PROP_TAG_SUBJECT:
 		case PROP_TAG_ASSOCIATED:
 		case PROP_TAG_CHANGENUMBER:
-		case PROP_TAG_SUBJECTPREFIX:
-		case PROP_TAG_NORMALIZEDSUBJECT:
 			continue;
 		default:
 			pproptags->pproptag[pproptags->count] =
@@ -1066,7 +1063,7 @@ BOOL message_object_check_readonly_property(
 
 static BOOL message_object_get_calculated_property(
 	MESSAGE_OBJECT *pmessage, uint32_t proptag, void **ppvalue)
-{	
+{
 	switch (proptag) {
 	case PROP_TAG_ACCESS:
 		*ppvalue = &pmessage->tag_access;
@@ -1378,6 +1375,35 @@ static BOOL message_object_set_properties_internal(
 BOOL message_object_set_properties(MESSAGE_OBJECT *pmessage,
 	const TPROPVAL_ARRAY *ppropvals)
 {
+	char *psubject;
+	char *pnormalized_subject;
+	
+	/* seems some php-mapi users do not understand well
+		the relationship between PROP_TAG_SUBJECT and
+		PROP_TAG_NORMALIZEDSUBJECT, we try to resolve
+		the conflict when there exist both of them */
+	psubject = common_util_get_propvals(
+			ppropvals, PROP_TAG_SUBJECT);
+	if (NULL == psubject) {
+		psubject = common_util_get_propvals(
+			ppropvals, PROP_TAG_SUBJECT_STRING8);
+	}
+	if (NULL != psubject) {
+		pnormalized_subject = common_util_get_propvals(
+				ppropvals, PROP_TAG_NORMALIZEDSUBJECT);
+		if (NULL == pnormalized_subject) {
+			pnormalized_subject = common_util_get_propvals(
+				ppropvals, PROP_TAG_NORMALIZEDSUBJECT_STRING8);
+		}
+		if (NULL != pnormalized_subject) {
+			if ('\0' == pnormalized_subject[0] && '\0' != psubject[0]) {
+				common_util_remove_propvals((TPROPVAL_ARRAY*)
+					ppropvals, PROP_TAG_NORMALIZEDSUBJECT);
+				common_util_remove_propvals((TPROPVAL_ARRAY*)
+					ppropvals, PROP_TAG_NORMALIZEDSUBJECT_STRING8);
+			}
+		}
+	}
 	return message_object_set_properties_internal(
 						pmessage, TRUE, ppropvals);
 }
@@ -1593,6 +1619,11 @@ BOOL message_object_set_readflag(MESSAGE_OBJECT *pmessage,
 	static uint8_t fake_false = 0;
 	TAGGED_PROPVAL propval_buff[2];
 	
+	read_flag &= MSG_READ_FLAG_SUPPRESS_RECEIPT|
+				MSG_READ_FLAG_CLEAR_READ_FLAG|
+				MSG_READ_FLAG_GENERATE_RECEIPT_ONLY|
+				MSG_READ_FLAG_CLEAR_NOTIFY_READ|
+				MSG_READ_FLAG_CLEAR_NOTIFY_UNREAD;
 	if (TRUE == store_object_check_private(pmessage->pstore)) {
 		username = NULL;
 	} else {

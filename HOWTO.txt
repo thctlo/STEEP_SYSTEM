@@ -4,7 +4,7 @@ yum -y install gcc gcc-c++ makedepend mariadb mariadb-server mariadb-devel sqlit
 
 #build php-mapi, caution!!! cannot do this step after libiconv
 cd STEEP_SYSTEM-master/AGENT_SERVICE/php_mapi
-sh -x build.sh
+sh build.sh
 cp modules/mapi.so /usr/lib64/php/modules/
 cp mapi.ini /etc/php.d/
 
@@ -42,7 +42,7 @@ make && make install
 
 #build and install the whole system 
 cd STEEP_SYSTEM-master
-sh -x build && sh -x install
+sh build.sh && sh install.sh
 
 #create database
 systemctl enable mariadb
@@ -70,6 +70,52 @@ ScriptAlias /cgi-bin/ "/var/www/cgi-bin/"
 <Directory "/var/www/cgi-bin">
 ...
 </Directory>
+
+
+#add paragraph below
+
+Alias /html "/var/athena/html"
+
+<Directory "/var/athena/html">
+	Options Indexes MultiViews
+    AllowOverride None
+    Require all granted
+</Directory>
+
+Alias /data/css "/var/athena/data/css"
+
+<Directory "/var/athena/data/css">
+	Options Indexes MultiViews
+	AllowOverride None
+	Require all granted
+</Directory>
+
+
+Alias /data/script "/var/athena/data/script"
+
+<Directory "/var/athena/data/script">
+	Options Indexes MultiViews
+	AllowOverride None
+	Require all granted
+</Directory>
+
+Alias /data/picture "/var/athena/data/picture"
+
+<Directory "/var/athena/data/picture">
+	Options Indexes MultiViews
+	AllowOverride None
+	Require all granted
+</Directory>
+
+
+ScriptAlias /cgi-bin/ "/var/athena/cgi-bin/"
+
+<Directory "/var/athena/cgi-bin">
+	AllowOverride None
+	Options None
+	Require all granted
+</Directory>
+
 
 #start apache
 systemctl enable httpd
@@ -178,6 +224,7 @@ mkdir /u-data/s1
 mkdir /d-data
 mkdir /d-data/m1
 mkdir /d-data/s1
+mkdir /app-data
 cd /var/athena/tools/
 ./format_area.sh /u-data/m1
 ./format_area.sh /d-data/m1

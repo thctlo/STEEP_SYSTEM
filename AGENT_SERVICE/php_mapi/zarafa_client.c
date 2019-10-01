@@ -173,8 +173,8 @@ uint32_t zarafa_client_checksession(GUID hsession)
 	return response.result;
 }
 
-uint32_t zarafa_client_uinfo(const char *username,
-	BINARY *pentryid, char **ppdisplay_name, char **ppx500dn)
+uint32_t zarafa_client_uinfo(const char *username, BINARY *pentryid,
+	char **ppdisplay_name, char **ppx500dn, uint32_t *pprivilege_bits)
 {
 	RPC_REQUEST request;
 	RPC_RESPONSE response;
@@ -188,6 +188,7 @@ uint32_t zarafa_client_uinfo(const char *username,
 		*pentryid = response.payload.uinfo.entryid;
 		*ppdisplay_name = response.payload.uinfo.pdisplay_name;
 		*ppx500dn = response.payload.uinfo.px500dn;
+		*pprivilege_bits = response.payload.uinfo.privilege_bits;
 	}
 	return response.result;
 }
@@ -284,24 +285,6 @@ uint32_t zarafa_client_resolvename(GUID hsession,
 	return response.result;
 }
 
-uint32_t zarafa_client_openrules(GUID hsession,
-	uint32_t hfolder, uint32_t *phobject)
-{
-	RPC_REQUEST request;
-	RPC_RESPONSE response;
-	
-	request.call_id = CALL_ID_OPENRULES;
-	request.payload.openrules.hsession = hsession;
-	request.payload.openrules.hfolder = hfolder;
-	if (!zarafa_client_do_rpc(&request, &response)) {
-		return EC_RPC_FAIL;
-	}
-	if (EC_SUCCESS == response.result) {
-		*phobject = response.payload.openrules.hobject;
-	}
-	return response.result;
-}
-
 uint32_t zarafa_client_getpermissions(GUID hsession,
 	uint32_t hobject, PERMISSION_SET *pperm_set)
 {
@@ -337,14 +320,14 @@ uint32_t zarafa_client_modifypermissions(GUID hsession,
 }
 
 uint32_t zarafa_client_modifyrules(GUID hsession,
-	uint32_t hrules, uint32_t flags, const RULE_LIST *plist)
+	uint32_t hfolder, uint32_t flags, const RULE_LIST *plist)
 {
 	RPC_REQUEST request;
 	RPC_RESPONSE response;
 	
 	request.call_id = CALL_ID_MODIFYRULES;
 	request.payload.modifyrules.hsession = hsession;
-	request.payload.modifyrules.hrules = hrules;
+	request.payload.modifyrules.hfolder = hfolder;
 	request.payload.modifyrules.flags = flags;
 	request.payload.modifyrules.plist = (void*)plist;
 	if (!zarafa_client_do_rpc(&request, &response)) {
@@ -479,14 +462,14 @@ uint32_t zarafa_client_loadrecipienttable(GUID hsession,
 }
 
 uint32_t zarafa_client_loadruletable(GUID hsession,
-	uint32_t hrules, uint32_t *phobject)
+	uint32_t hfolder, uint32_t *phobject)
 {
 	RPC_REQUEST request;
 	RPC_RESPONSE response;
 	
 	request.call_id = CALL_ID_LOADRULETABLE;
 	request.payload.loadruletable.hsession = hsession;
-	request.payload.loadruletable.hrules = hrules;
+	request.payload.loadruletable.hfolder = hfolder;
 	if (!zarafa_client_do_rpc(&request, &response)) {
 		return EC_RPC_FAIL;
 	}
@@ -1557,159 +1540,6 @@ uint32_t zarafa_client_setsearchcriteria(
 	return response.result;
 }
 
-uint32_t zarafa_client_openfreebusydata(GUID hsession,
-	uint32_t hsupport, const BINARY_ARRAY *pentryids,
-	LONG_ARRAY *phobject_array)
-{
-	RPC_REQUEST request;
-	RPC_RESPONSE response;
-	
-	request.call_id = CALL_ID_OPENFREEBUSYDATA;
-	request.payload.openfreebusydata.hsession = hsession;
-	request.payload.openfreebusydata.hsupport = hsupport;
-	request.payload.openfreebusydata.pentryids = (void*)pentryids;
-	if (!zarafa_client_do_rpc(&request, &response)) {
-		return EC_RPC_FAIL;
-	}
-	if (EC_SUCCESS == response.result) {
-		*phobject_array = response.payload.openfreebusydata.hobject_array;
-	}
-	return response.result;
-}
-
-uint32_t zarafa_client_enumfreebusyblocks(GUID hsession,
-	uint32_t hfbdata, uint64_t nttime_start, uint64_t nttime_end,
-	uint32_t *phobject)
-{
-	RPC_REQUEST request;
-	RPC_RESPONSE response;
-	
-	request.call_id = CALL_ID_ENUMFREEBUSYBLOCKS;
-	request.payload.enumfreebusyblocks.hsession = hsession;
-	request.payload.enumfreebusyblocks.hfbdata = hfbdata;
-	request.payload.enumfreebusyblocks.nttime_start = nttime_start;
-	request.payload.enumfreebusyblocks.nttime_end = nttime_end;
-	if (!zarafa_client_do_rpc(&request, &response)) {
-		return EC_RPC_FAIL;
-	}
-	if (EC_SUCCESS == response.result) {
-		*phobject = response.payload.enumfreebusyblocks.hobject;
-	}
-	return response.result;
-}
-
-uint32_t zarafa_client_fbenumreset(GUID hsession, uint32_t hfbenum)
-{
-	RPC_REQUEST request;
-	RPC_RESPONSE response;
-	
-	request.call_id = CALL_ID_FBENUMRESET;
-	request.payload.fbenumreset.hsession = hsession;
-	request.payload.fbenumreset.hfbenum = hfbenum;
-	if (!zarafa_client_do_rpc(&request, &response)) {
-		return EC_RPC_FAIL;
-	}
-	return response.result;
-}
-
-uint32_t zarafa_client_fbenumskip(GUID hsession,
-	uint32_t hfbenum, uint32_t num)
-{
-	RPC_REQUEST request;
-	RPC_RESPONSE response;
-	
-	request.call_id = CALL_ID_FBENUMSKIP;
-	request.payload.fbenumskip.hsession = hsession;
-	request.payload.fbenumskip.hfbenum = hfbenum;
-	request.payload.fbenumskip.num = num;
-	if (!zarafa_client_do_rpc(&request, &response)) {
-		return EC_RPC_FAIL;
-	}
-	return response.result;
-}
-
-uint32_t zarafa_client_fbenumrestrict(GUID hsession,
-	uint32_t hfbenum, uint64_t nttime_start, uint64_t nttime_end)
-{
-	RPC_REQUEST request;
-	RPC_RESPONSE response;
-	
-	request.call_id = CALL_ID_FBENUMRESTRICT;
-	request.payload.fbenumrestrict.hsession = hsession;
-	request.payload.fbenumrestrict.hfbenum = hfbenum;
-	request.payload.fbenumrestrict.nttime_start = nttime_start;
-	request.payload.fbenumrestrict.nttime_end = nttime_end;
-	if (!zarafa_client_do_rpc(&request, &response)) {
-		return EC_RPC_FAIL;
-	}
-	return response.result;
-}
-
-uint32_t zarafa_client_fbenumexport(GUID hsession,
-	uint32_t hfbenum, uint32_t count, uint64_t nttime_start,
-	uint64_t nttime_end, const char *organizer_name,
-	const char *username, const char *uid_string,
-	BINARY *pbin_ical)
-{
-	RPC_REQUEST request;
-	RPC_RESPONSE response;
-	
-	request.call_id = CALL_ID_FBENUMEXPORT;
-	request.payload.fbenumexport.hsession = hsession;
-	request.payload.fbenumexport.hfbenum = hfbenum;
-	request.payload.fbenumexport.count = count;
-	request.payload.fbenumexport.nttime_start = nttime_start;
-	request.payload.fbenumexport.nttime_end = nttime_end;
-	request.payload.fbenumexport.organizer_name = (void*)organizer_name;
-	request.payload.fbenumexport.username = (void*)username;
-	request.payload.fbenumexport.uid_string = (void*)uid_string;
-	if (!zarafa_client_do_rpc(&request, &response)) {
-		return EC_RPC_FAIL;
-	}
-	if (EC_SUCCESS == response.result) {
-		*pbin_ical = response.payload.fbenumexport.bin_ical;
-	}
-	return response.result;
-}
-
-uint32_t zarafa_client_fetchfreebusyblocks(GUID hsession,
-	uint32_t hfbenum, uint32_t celt, FBBLOCK_ARRAY *pblocks)
-{
-	RPC_REQUEST request;
-	RPC_RESPONSE response;
-	
-	request.call_id = CALL_ID_FETCHFREEBUSYBLOCKS;
-	request.payload.fetchfreebusyblocks.hsession = hsession;
-	request.payload.fetchfreebusyblocks.hfbenum = hfbenum;
-	request.payload.fetchfreebusyblocks.celt = celt;
-	if (!zarafa_client_do_rpc(&request, &response)) {
-		return EC_RPC_FAIL;
-	}
-	if (EC_SUCCESS == response.result) {
-		*pblocks = response.payload.fetchfreebusyblocks.blocks;
-	}
-	return response.result;
-}
-
-uint32_t zarafa_client_getfreebusyrange(GUID hsession,
-	uint32_t hfbdata, uint64_t *pnttime_start, uint64_t *pnttime_end)
-{
-	RPC_REQUEST request;
-	RPC_RESPONSE response;
-	
-	request.call_id = CALL_ID_GETFREEBUSYRANGE;
-	request.payload.getfreebusyrange.hsession = hsession;
-	request.payload.getfreebusyrange.hfbdata = hfbdata;
-	if (!zarafa_client_do_rpc(&request, &response)) {
-		return EC_RPC_FAIL;
-	}
-	if (EC_SUCCESS == response.result) {
-		*pnttime_start = response.payload.getfreebusyrange.nttime_start;
-		*pnttime_end = response.payload.getfreebusyrange.nttime_end;
-	}
-	return response.result;
-}
-	
 uint32_t zarafa_client_messagetorfc822(GUID hsession,
 	uint32_t hmessage, BINARY *peml_bin)
 {
@@ -1806,6 +1636,59 @@ uint32_t zarafa_client_vcftomessage(GUID hsession,
 	request.payload.vcftomessage.hsession = hsession;
 	request.payload.vcftomessage.hmessage = hmessage;
 	request.payload.vcftomessage.pvcf_bin = (void*)pvcf_bin;
+	if (!zarafa_client_do_rpc(&request, &response)) {
+		return EC_RPC_FAIL;
+	}
+	return response.result;
+}
+
+uint32_t zarafa_client_getuseravailability(GUID hsession,
+	BINARY entryid, uint64_t starttime, uint64_t endtime,
+	char **ppresult_string)
+{
+	RPC_REQUEST request;
+	RPC_RESPONSE response;
+	
+	request.call_id = CALL_ID_GETUSERAVAILABILITY;
+	request.payload.getuseravailability.hsession = hsession;
+	request.payload.getuseravailability.entryid = entryid;
+	request.payload.getuseravailability.starttime = starttime;
+	request.payload.getuseravailability.endtime = endtime;
+	if (!zarafa_client_do_rpc(&request, &response)) {
+		return EC_RPC_FAIL;
+	}
+	if (EC_SUCCESS == response.result) {
+		*ppresult_string = response.payload.getuseravailability.result_string;
+	}
+	return response.result;
+}
+
+uint32_t zarafa_client_setpasswd(const char *username,
+	const char *passwd, const char *new_passwd)
+{
+	RPC_REQUEST request;
+	RPC_RESPONSE response;
+	
+	request.call_id = CALL_ID_SETPASSWD;
+	request.payload.setpasswd.username = (void*)username;
+	request.payload.setpasswd.passwd = (void*)passwd;
+	request.payload.setpasswd.new_passwd = (void*)new_passwd;
+	if (!zarafa_client_do_rpc(&request, &response)) {
+		return EC_RPC_FAIL;
+	}
+	return response.result;
+}
+
+uint32_t zarafa_client_linkmessage(GUID hsession,
+	BINARY search_entryid, BINARY message_entryid)
+{
+	RPC_REQUEST request;
+	RPC_RESPONSE response;
+	
+	request.call_id = CALL_ID_LINKMESSAGE;
+	request.payload.linkmessage.hsession = hsession;
+	request.payload.linkmessage.search_entryid = search_entryid;
+	request.payload.linkmessage.message_entryid = message_entryid;
 	if (!zarafa_client_do_rpc(&request, &response)) {
 		return EC_RPC_FAIL;
 	}

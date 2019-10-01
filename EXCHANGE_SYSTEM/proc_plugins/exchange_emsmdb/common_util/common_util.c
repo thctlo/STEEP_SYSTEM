@@ -47,6 +47,7 @@ static int g_average_blocks;
 static MIME_POOL *g_mime_pool;
 static pthread_key_t g_dir_key;
 static pthread_mutex_t g_id_lock;
+static char g_submit_command[1024];
 static unsigned int g_max_mail_len;
 static unsigned int g_max_rule_len;
 static LIB_BUFFER *g_file_allocator;
@@ -2414,12 +2415,16 @@ BOOL common_util_send_message(LOGON_OBJECT *plogon,
 		logon_object_get_dir(plogon), NULL, 0,
 		message_id, PROP_TAG_PARENTFOLDERID,
 		&pvalue) || NULL == pvalue) {
+		common_util_log_info(0, "cannot get parent folder_id "
+				"of message %llx when sending it", message_id);
 		return FALSE;
 	}
 	parent_id = *(uint64_t*)pvalue;
 	if (FALSE == exmdb_client_read_message(
 		logon_object_get_dir(plogon), NULL, cpid,
 		message_id, &pmsgctnt) || NULL == pmsgctnt) {
+		common_util_log_info(0, "fail to read message %llu"
+				" from exmdb when sending it", message_id);
 		return FALSE;
 	}
 	if (NULL == common_util_get_propvals(
@@ -2439,6 +2444,8 @@ BOOL common_util_send_message(LOGON_OBJECT *plogon,
 	pvalue = common_util_get_propvals(
 		&pmsgctnt->proplist, PROP_TAG_MESSAGEFLAGS);
 	if (NULL == pvalue) {
+		common_util_log_info(0, "fail to get message_flag"
+			" of message %llu when sending it", message_id);
 		return FALSE;
 	}
 	message_flags = *(uint32_t*)pvalue;
@@ -2450,6 +2457,8 @@ BOOL common_util_send_message(LOGON_OBJECT *plogon,
 	
 	prcpts = pmsgctnt->children.prcpts;
 	if (NULL == prcpts) {
+		common_util_log_info(0, "mssing recipients"
+			" when sending message %llu", message_id);
 		return FALSE;
 	}
 	double_list_init(&temp_list);
@@ -2462,7 +2471,7 @@ BOOL common_util_send_message(LOGON_OBJECT *plogon,
 			pvalue = common_util_get_propvals(
 				prcpts->pparray[i], PROP_TAG_RECIPIENTTYPE);
 			if (NULL == pvalue) {
-				return FALSE;
+				continue;
 			}
 			if (0 == (*(uint32_t*)pvalue &&
 				RECIPIENT_TYPE_NEED_RESEND)) {
@@ -2480,7 +2489,7 @@ BOOL common_util_send_message(LOGON_OBJECT *plogon,
 		*/
 		pnode->pdata = common_util_get_propvals(
 			prcpts->pparray[i], PROP_TAG_SMTPADDRESS);
-		if (NULL != pnode->pdata) {
+		if (NULL != pnode->pdata && '\0' != ((char*)pnode->pdata)[0]) {
 			double_list_append_as_tail(&temp_list, pnode);
 			continue;
 		}
@@ -2491,10 +2500,14 @@ CONVERT_ENTRYID:
 			pvalue = common_util_get_propvals(
 				prcpts->pparray[i], PROP_TAG_ENTRYID);
 			if (NULL == pvalue) {
+				common_util_log_info(0, "cannot get recipient "
+					"entryid when sending message %llu", message_id);
 				return FALSE;
 			}
 			if (FALSE == common_util_entryid_to_username(
 				pvalue, username)) {
+				common_util_log_info(0, "cannot convert recipient entryid "
+					"to smtp address when sending message %llu", message_id);
 				return FALSE;	
 			}
 			tmp_len = strlen(username) + 1;
@@ -2508,6 +2521,9 @@ CONVERT_ENTRYID:
 				pnode->pdata = common_util_get_propvals(
 					prcpts->pparray[i], PROP_TAG_EMAILADDRESS);
 				if (NULL == pnode->pdata) {
+					common_util_log_info(0, "cannot get email address "
+						"of recipient of SMTP address type when sending"
+						" message %llu", message_id);
 					return FALSE;
 				}
 			} else if (0 == strcasecmp(pvalue, "EX")) {
@@ -2533,6 +2549,8 @@ CONVERT_ENTRYID:
 		double_list_append_as_tail(&temp_list, pnode);
 	}
 	if (0 == double_list_get_nodes_num(&temp_list)) {
+		common_util_log_info(0, "empty converted recipients "
+				"list when sending message %llu", message_id);
 		return FALSE;
 	}
 	pvalue = common_util_get_propvals(&pmsgctnt->proplist,
@@ -2553,11 +2571,15 @@ CONVERT_ENTRYID:
 	if (FALSE == oxcmail_export(pmsgctnt, FALSE,
 		body_type, g_mime_pool, &imail, common_util_alloc,
 		common_util_get_propids, common_util_get_propname)) {
+		common_util_log_info(0, "fail to export to rfc822"
+			" mail when sending message %llu", message_id);
 		return FALSE;	
 	}
 	if (FALSE == common_util_send_mail(&imail,
 		logon_object_get_account(plogon), &temp_list)) {
 		mail_free(&imail);
+		common_util_log_info(0, "fail to send "
+			"message %llu via SMTP", message_id);
 		return FALSE;
 	}
 	mail_free(&imail);
@@ -2575,11 +2597,15 @@ CONVERT_ENTRYID:
 	if (NULL != ptarget) {
 		if (FALSE == common_util_from_message_entryid(
 			plogon, ptarget, &folder_id, &new_id)) {
+			common_util_log_info(0, "fail to retrieve target "
+				"entryid when sending message %llu", message_id);
 			return FALSE;	
 		}
 		if (FALSE == exmdb_client_clear_submit(
 			logon_object_get_dir(plogon),
 			message_id, FALSE)) {
+			common_util_log_info(0, "fail to clear submit "
+				"flag when sending message %llu", message_id);
 			return FALSE;
 		}
 		if (FALSE == exmdb_client_movecopy_message(
@@ -2587,6 +2613,8 @@ CONVERT_ENTRYID:
 			logon_object_get_account_id(plogon),
 			cpid, message_id, folder_id, new_id,
 			TRUE, &b_result)) {
+			common_util_log_info(0, "fail to move to target "
+				"folder when sending message %llu", message_id);
 			return FALSE;
 		}
 	} else if (TRUE == b_delete) {
@@ -2598,16 +2626,22 @@ CONVERT_ENTRYID:
 		if (FALSE == exmdb_client_clear_submit(
 			logon_object_get_dir(plogon),
 			message_id, FALSE)) {
+			common_util_log_info(0, "fail to clear submit "
+				"flag when sending message %llu", message_id);
 			return FALSE;
 		}
 		ids.count = 1;
 		ids.pids = &message_id;
-		return exmdb_client_movecopy_messages(
+		if (FALSE == exmdb_client_movecopy_messages(
 			logon_object_get_dir(plogon),
 			logon_object_get_account_id(plogon),
 			cpid, FALSE, NULL, parent_id,
 			rop_util_make_eid_ex(1, PRIVATE_FID_SENT_ITEMS),
-			FALSE, &ids, &b_partial);
+			FALSE, &ids, &b_partial)) {
+			common_util_log_info(0, "fail to move to \"sent\""
+				" folder when sending message %llu", message_id);
+			return FALSE;	
+		}
 	}
 	return TRUE;
 }
@@ -2619,7 +2653,8 @@ LIB_BUFFER* common_util_get_allocator()
 
 void common_util_init(const char *org_name, int average_blocks,
 	int max_rcpt, int max_message, unsigned int max_mail_len,
-	unsigned int max_rule_len, const char *smtp_ip, int smtp_port)
+	unsigned int max_rule_len, const char *smtp_ip, int smtp_port,
+	const char *submit_command)
 {
 	strcpy(g_org_name, org_name);
 	g_average_blocks = average_blocks;
@@ -2629,6 +2664,7 @@ void common_util_init(const char *org_name, int average_blocks,
 	g_max_rule_len = max_rule_len;
 	strcpy(g_smtp_ip, smtp_ip);
 	g_smtp_port = smtp_port;
+	strcpy(g_submit_command, submit_command);
 	g_faststream_id = 0;
 	pthread_mutex_init(&g_id_lock, NULL);
 	pthread_key_create(&g_dir_key, NULL);
@@ -2868,6 +2904,11 @@ void common_util_set_param(int param, unsigned int value)
 		g_max_rule_len = value;
 		break;
 	}
+}
+
+const char* common_util_get_submit_command()
+{
+	return g_submit_command;
 }
 
 uint32_t common_util_get_ftstream_id()

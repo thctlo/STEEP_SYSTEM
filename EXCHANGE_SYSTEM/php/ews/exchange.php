@@ -1,5 +1,11 @@
 <?php
 
+// Do not log errors into stdout
+ini_set("display_errors", false);
+
+ini_set("log_errors", true);
+error_reporting(E_ERROR);
+
 require_once "../lib/db.php";
 require_once "../lib/util.php";
 
@@ -32,62 +38,48 @@ class ExchangeWebServices {
 		}
 		date_default_timezone_set($uinfo['timezone']);
 		$oofconf = parse_ini_file($uinfo['maildir'] . "/config/autoreply.cfg", false, INI_SCANNER_RAW);
+		date_default_timezone_set('UTC');
 		if (!$oofconf) {
 			$setting['state'] = 'Disabled';
 			$setting['external_audience'] = 'None';
 			$setting['start_time'] = date("Y-m-dTH:i:s");
 			$setting['end_time'] = date("Y-m-dTH:i:s");
 		} else {
-			if (!$oofconf['REPLY_SWITCH']) {
+			switch ($oofconf['OOF_STATE']) {
+			case 1:
+				$setting['state'] = 'Enabled';
+				break;
+			case 2:
+				$setting['state'] = 'Scheduled';
+				break;
+			default:
 				$setting['state'] = 'Disabled';
-			} else {
-				if (0 == $oofconf['REPLY_SWITCH']) {
-					$setting['state'] = 'Disabled';
-				} else {
-					if (!$oofconf['DURATION_SWITCH'] ||
-						0 == $oofconf['DURATION_SWITCH']) {
-						$setting['state'] = 'Enabled';
-					} else {
-						$setting['state'] = 'Scheduled';
-					}
-				}
+				break;
 			}
-			if (!$oofconf['EXTERNAL_SWITCH'] ||
-				0 == $oofconf['EXTERNAL_SWITCH']) {
-				$setting['external_audience'] = 'None';
+			if (!$oofconf['ALLOW_EXTERNAL_OOF']) {
+				if (!$oofconf['EXTERNAL_AUDIENCE']) {
+					$setting['external_audience'] = 'All';
+				} else {
+					$setting['external_audience'] = 'Known';
+				}
 			} else {
-				if (!$oofconf['EXTERNAL_CHECK'] ||
-					0 == $oofconf['EXTERNAL_CHECK']) {
-					$setting['external_audience'] = 'All';	
+				if (!$oofconf['EXTERNAL_AUDIENCE']) {
+					$setting['external_audience'] = 'All';
 				} else {
 					$setting['external_audience'] = 'Known';
 				}
 			}
-			if (!$oofconf['DURATION_DATE'] || !$oofconf['DURATION_TIME']) {
-				date_default_timezone_set('UTC');
+			if (!$oofconf['START_TIME']) {
 				$setting['start_time'] = date("Y-m-d\TH:i:s");
+			} else {
+				$setting['start_time'] = date("Y-m-d\TH:i:s", $oofconf['START_TIME']);
+			}
+			if (!$oofconf['END_TIME']) {
 				$setting['end_time'] = date("Y-m-d\TH:i:s");
 			} else {
-				$pos_date = strpos($oofconf['DURATION_DATE'], '~');
-				$pos_time = strpos($oofconf['DURATION_TIME'], '~');
-				if (false === $pos_date || false === $pos_time) {
-					date_default_timezone_set('UTC');
-					$setting['start_time'] = date("Y-m-d\TH:i:s");
-					$setting['end_time'] = date("Y-m-d\TH:i:s");
-				} else {
-					$str_time = substr($oofconf['DURATION_DATE'], 0, $pos_date) .
-							' ' . substr($oofconf['DURATION_TIME'], 0, $pos_time);
-					$start_time = strtotime($str_time);
-					$str_time = substr($oofconf['DURATION_DATE'], $pos_date + 1) .
-							' ' . substr($oofconf['DURATION_TIME'], $pos_time + 1);
-					$end_time = strtotime($str_time);
-					date_default_timezone_set('UTC');
-					$setting['start_time'] = date("Y-m-d\TH:i:s", $start_time);
-					$setting['end_time'] = date("Y-m-d\TH:i:s", $end_time);
-				}
+				$setting['end_time'] = date("Y-m-d\TH:i:s", $oofconf['END_TIME']);
 			}
 		}
-		$setting['allow_external'] = 'All';
 		$content = file_get_contents($uinfo['maildir'] . "/config/internal-reply");
 		if ($content) {
 			$pos = strpos($content, "\r\n\r\n");
@@ -135,7 +127,7 @@ class ExchangeWebServices {
 			$ExternalReply = $OofSettings->addChild('ExternalReply');
 			$ExternalReply->addChild('Message', $setting['external_reply']);
 		}
-		$GetUserOofSettingsResponse->addChild('AllowExternalOof', $setting['allow_external']);
+		$GetUserOofSettingsResponse->addChild('AllowExternalOof', "All");
 		$soap_out = $xml->asXML();
 	}
 	
@@ -162,37 +154,37 @@ class ExchangeWebServices {
 		} else {
 			die("unrecognized RoutingType " . $Mailbox->RoutingType);
 		}
-		date_default_timezone_set($uinfo['timezone']);
+		date_default_timezone_set('UTC');
 		if (!$UserOofSettings->OofState) {
 			die("parameter error in SetUserOofSettingsRequest");
 		}
 		if (0 == strcasecmp($UserOofSettings->OofState, "Disabled")) {
-			$cfgcontent = "REPLY_SWITCH = 0\n";
+			$cfgcontent = "OOF_STATE = 0\n";
 		} else if (0 == strcasecmp($UserOofSettings->OofState, "Enabled")) {
-			$cfgcontent = "REPLY_SWITCH = 1\nDURATION_SWITCH=0\n";
+			$cfgcontent = "OOF_STATE = 1\n";
 		} else if (0 == strcasecmp($UserOofSettings->OofState, "Scheduled")) {
-			$cfgcontent = "REPLY_SWITCH = 1\nDURATION_SWITCH=1\n";
+			$cfgcontent = "OOF_STATE = 2\n";
 		} else {
 			die("unrecognized OofState " . $UserOofSettings->OofState);
 		}
 		if (0 == strcasecmp($UserOofSettings->ExternalAudience, "None")) {
-			$cfgcontent .= "EXTERNAL_SWITCH = 0\nEXTERNAL_CHECK = 0\n";
+			$cfgcontent .= "ALLOW_EXTERNAL_OOF = 0\n";
 		} else if (0 == strcasecmp($UserOofSettings->ExternalAudience, "All")) {
-			$cfgcontent .= "EXTERNAL_SWITCH = 1\nEXTERNAL_CHECK = 0\n";
+			$cfgcontent .= "ALLOW_EXTERNAL_OOF = 1\nEXTERNAL_AUDIENCE = 0\n";
 		} else if (0 == strcasecmp($UserOofSettings->ExternalAudience, "Known")) {
-			$cfgcontent .= "EXTERNAL_SWITCH = 1\nEXTERNAL_CHECK = 1\n";
+			$cfgcontent .= "ALLOW_EXTERNAL_OOF = 1\nEXTERNAL_AUDIENCE = 1\n";
 		}
 		if ($UserOofSettings->Duration) {
-			$start_time = strtotime($UserOofSettings->Duration->StartTime);
-			$end_time = strtotime($UserOofSettings->Duration->EndTime);
-			$cfgcontent .= "DURATION_DATE = " . date('Y-n-j', $start_time) . '~' . date('Y-n-j', $end_time) . "\n";
-			$cfgcontent .= "DURATION_TIME = " . date('H:i', $start_time) . '~' . date('H:i', $end_time) . "\n";
+			$cfgcontent .= "START_TIME = " . strtotime($UserOofSettings->Duration->StartTime) . "\n";
+			$cfgcontent .= "END_TIME = " . strtotime($UserOofSettings->Duration->EndTime) . "\n";
 		}
 		file_put_contents($uinfo['maildir']  . "/config/autoreply.cfg", $cfgcontent);
+		chmod($uinfo['maildir']  . "/config/autoreply.cfg", 0666);
 		if ($UserOofSettings->InternalReply) {
 			$mime_content = "Content-Type: text/html;\r\n\tcharset=\"utf-8\""."\r\n\r\n";
 			$mime_content .= $UserOofSettings->InternalReply->Message;
 			file_put_contents($uinfo['maildir'] . "/config/internal-reply", $mime_content);
+			chmod($uinfo['maildir'] . "/config/internal-reply", 0666);
 		} else {
 			unlink($uinfo['maildir'] . "/config/internal-reply");
 		}
@@ -200,6 +192,7 @@ class ExchangeWebServices {
 			$mime_content = "Content-Type: text/html;\r\n\tcharset=\"utf-8\""."\r\n\r\n";
 			$mime_content .= $UserOofSettings->ExternalReply->Message;
 			file_put_contents($uinfo['maildir'] . "/config/external-reply", $mime_content);
+			chmod($uinfo['maildir'] . "/config/external-reply", 0666);
 		} else {
 			unlink($uinfo['maildir'] . "/config/external-reply");
 		}

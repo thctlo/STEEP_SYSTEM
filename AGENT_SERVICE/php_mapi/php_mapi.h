@@ -46,7 +46,7 @@ ZEND_FUNCTION(mapi_createoneoff);
 ZEND_FUNCTION(mapi_parseoneoff);
 
 ZEND_FUNCTION(mapi_logon_zarafa);
-ZEND_FUNCTION(mapi_zarafa_getuser_by_name);
+ZEND_FUNCTION(mapi_logon_ex);
 ZEND_FUNCTION(mapi_getmsgstorestable);
 ZEND_FUNCTION(mapi_openmsgstore);
 ZEND_FUNCTION(mapi_openprofilesection);
@@ -82,6 +82,7 @@ ZEND_FUNCTION(mapi_table_freebookmark);
 
 ZEND_FUNCTION(mapi_folder_gethierarchytable);
 ZEND_FUNCTION(mapi_folder_getcontentstable);
+ZEND_FUNCTION(mapi_folder_getrulestable);
 ZEND_FUNCTION(mapi_folder_createmessage);
 ZEND_FUNCTION(mapi_folder_createfolder);
 ZEND_FUNCTION(mapi_folder_deletefolder);
@@ -92,6 +93,7 @@ ZEND_FUNCTION(mapi_folder_emptyfolder);
 ZEND_FUNCTION(mapi_folder_setreadflags);
 ZEND_FUNCTION(mapi_folder_getsearchcriteria);
 ZEND_FUNCTION(mapi_folder_setsearchcriteria);
+ZEND_FUNCTION(mapi_folder_modifyrules);
 
 ZEND_FUNCTION(mapi_message_getattachmenttable);
 ZEND_FUNCTION(mapi_message_getrecipienttable);
@@ -109,10 +111,6 @@ ZEND_FUNCTION(mapi_getnamesfromids);
 ZEND_FUNCTION(mapi_getidsfromnames);
 
 ZEND_FUNCTION(mapi_decompressrtf);
-
-ZEND_FUNCTION(mapi_folder_openmodifytable);
-ZEND_FUNCTION(mapi_rules_gettable);
-ZEND_FUNCTION(mapi_rules_modifytable);
 
 ZEND_FUNCTION(mapi_stream_write);
 ZEND_FUNCTION(mapi_stream_read);
@@ -134,22 +132,7 @@ ZEND_FUNCTION(mapi_savechanges);
 ZEND_FUNCTION(mapi_zarafa_getpermissionrules);
 ZEND_FUNCTION(mapi_zarafa_setpermissionrules);
 
-ZEND_FUNCTION(mapi_freebusy_openmsg);
-ZEND_FUNCTION(mapi_freebusysupport_open);
-ZEND_FUNCTION(mapi_freebusysupport_close);
-ZEND_FUNCTION(mapi_freebusysupport_loaddata);
-ZEND_FUNCTION(mapi_freebusysupport_loadupdate);
-ZEND_FUNCTION(mapi_freebusydata_enumblocks);
-ZEND_FUNCTION(mapi_freebusydata_getpublishrange);
-ZEND_FUNCTION(mapi_freebusydata_setrange);
-ZEND_FUNCTION(mapi_freebusyenumblock_reset);
-ZEND_FUNCTION(mapi_freebusyenumblock_next);
-ZEND_FUNCTION(mapi_freebusyenumblock_skip);
-ZEND_FUNCTION(mapi_freebusyenumblock_restrict);
-ZEND_FUNCTION(mapi_freebusyenumblock_ical);
-ZEND_FUNCTION(mapi_freebusyupdate_publish);
-ZEND_FUNCTION(mapi_freebusyupdate_reset);
-ZEND_FUNCTION(mapi_freebusyupdate_savechanges);
+ZEND_FUNCTION(mapi_getuseravailability);
 
 ZEND_FUNCTION(mapi_exportchanges_config);
 ZEND_FUNCTION(mapi_exportchanges_synchronize);
@@ -185,6 +168,11 @@ ZEND_FUNCTION(mapi_feature);
 
 ZEND_FUNCTION(kc_session_save);
 ZEND_FUNCTION(kc_session_restore);
+
+ZEND_FUNCTION(nsp_getuserinfo);
+ZEND_FUNCTION(nsp_setuserpasswd);
+
+ZEND_FUNCTION(mapi_linkmessage);
 
 extern zend_module_entry mapi_module_entry;
 #define phpext_mapi_ptr &mapi_module_entry
